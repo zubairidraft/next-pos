@@ -48,7 +48,13 @@ Plans:
   1. Users can authenticate using Argon2id-hashed credentials, and cashiers can instantly switch sessions using a 4-digit PIN.
   2. UI toggles seamlessly between English and Urdu with correct RTL mirroring and bundled Noto Nastaliq Urdu rendering without external font downloads.
   3. Master data tables for categories, brands, and units are fully manageable with dual-language names.
-**Plans**: TBD
+**Plans**: 4 plans (02-01 to 02-04)
+
+Plans:
+- [ ] 02-01: Authentication & role permissions in pos-core with Argon2id password and PIN hashing.
+- [ ] 02-02: Bilingual master data repositories (categories, brands, units, settings) with dual-script search.
+- [ ] 02-03: Client-side i18n framework, locally bundled Urdu typography, and dynamic RTL layout mirroring.
+- [ ] 02-04: First-run setup wizard, cashier PIN quick-switch modal, and master data management views.
 
 ### Phase 3: Catalog & High-Volume Data Import
 **Goal**: Build the full product catalog supporting variants, units of measure, price tiers, and high-speed Excel/CSV import for 50,000+ items.  
