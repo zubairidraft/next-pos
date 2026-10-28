@@ -6,7 +6,7 @@ Next POS is delivered across 12 focused implementation phases (corresponding to 
 
 ## Phases
 
-- [ ] **Phase 1: Foundation, Data Engine & Architecture** - Monorepo setup, Tauri 2 shell, pos-core crate, SQLCipher encrypted database, migrations, and Paisa/Qty precision arithmetic types.
+- [x] **Phase 1: Foundation, Data Engine & Architecture** - Monorepo setup, Tauri 2 shell, pos-core crate, SQLCipher encrypted database, migrations, and Paisa/Qty precision arithmetic types.
 - [ ] **Phase 2: Security, Master Data & Urdu Localization** - User accounts, RBAC, cashier PIN quick-switching, system settings, first-run wizard, and complete English/Urdu RTL interface.
 - [ ] **Phase 3: Catalog & High-Volume Data Import** - Products, variants, unit conversions, multi-tier price lists, barcode management, and high-performance Excel/CSV importer for 50,000+ items.
 - [ ] **Phase 4: Purchasing, Costing & Stock Ledger** - Immutable stock movement ledger, vendor invoices, landed cost distribution, and weighted-average costing with Block on negative stock.
@@ -35,10 +35,10 @@ Next POS is delivered across 12 focused implementation phases (corresponding to 
 **Plans**: 4 plans (01-01 to 01-04)
 
 Plans:
-- [ ] 01-01: Monorepo workspace setup, Rust `crates/pos-core` skeleton, and Tauri 2 desktop shell configuration.
-- [ ] 01-02: Precise arithmetic engine in `pos-core/src/money.rs` with `Paisa(i64)`, `Qty(i64)`, basis point tax, and property tests.
-- [ ] 01-03: SQLCipher integration with rusqlite, Windows DPAPI encryption key derivation, and refinery database migration harness.
-- [ ] 01-04: End-to-end walking skeleton: Tauri command calling `pos-core` database migration and status probe, displaying on React UI.
+- [x] 01-01: Monorepo workspace setup, Rust `crates/pos-core` skeleton, and Tauri 2 desktop shell configuration.
+- [x] 01-02: Precise arithmetic engine in `pos-core/src/money.rs` with `Paisa(i64)`, `Qty(i64)`, basis point tax, and property tests.
+- [x] 01-03: SQLCipher integration with rusqlite, Windows DPAPI encryption key derivation, and refinery database migration harness.
+- [x] 01-04: End-to-end walking skeleton: Tauri command calling `pos-core` database migration and status probe, displaying on React UI.
 
 ### Phase 2: Security, Master Data & Urdu Localization
 **Goal**: Implement user access controls, cashier PIN login, basic business configuration, and a complete bilingual (English/Urdu) RTL UI.  
