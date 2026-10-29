@@ -14,6 +14,7 @@ import { ReportsView } from "./components/ReportsView";
 import { BackupView } from "./components/BackupView";
 import { LicenseView } from "./components/LicenseView";
 import { IndustryPacksView } from "./components/IndustryPacksView";
+import { SystemDiagnosticsModal } from "./components/SystemDiagnosticsModal";
 import { SystemStatusDto } from "./lib/contracts";
 import {
   ShieldCheck,
@@ -36,6 +37,7 @@ import {
   BarChart3,
   HardDriveDownload,
   Key,
+  Activity,
 } from "lucide-react";
 
 function AppContent() {
@@ -45,6 +47,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "khata" | "reports" | "backup" | "packs" | "license" | "audit" | "master" | "dashboard" | "wizard">("checkout");
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
     name: "Tariq Mahmood",
     role: "Cashier",
@@ -230,6 +233,16 @@ function AppContent() {
             {t("status.offline_ready")}
           </span>
 
+          {/* Diagnostics Button */}
+          <button
+            onClick={() => setIsDiagnosticsOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+            title="System & Hardware Diagnostics"
+          >
+            <Activity className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden lg:inline">Health</span>
+          </button>
+
           {/* Language Switcher */}
           <button
             onClick={toggleLanguage}
@@ -389,6 +402,12 @@ function AppContent() {
       <BulkImportModal
         isOpen={isBulkImportOpen}
         onClose={() => setIsBulkImportOpen(false)}
+      />
+
+      {/* System Diagnostics Modal */}
+      <SystemDiagnosticsModal
+        isOpen={isDiagnosticsOpen}
+        onClose={() => setIsDiagnosticsOpen(false)}
       />
     </div>
   );

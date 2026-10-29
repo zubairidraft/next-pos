@@ -356,5 +356,9 @@
   "packs": {
     "title": "Industry Specialized Modules",
     "subtitle": "Supermarket weighing scale barcodes, IMEI serial lifecycle tracking, and apparel matrix variants."
+  },
+  "diagnostics": {
+    "title": "Hardware & POS Engine Health Diagnostics",
+    "subtitle": "Automated health inspection across database, disk headroom, thermal printer, and scanner."
   }
 }

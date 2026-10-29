@@ -26,3 +26,11 @@ CREATE TABLE IF NOT EXISTS apparel_matrices (
     name_ur TEXT,
     created_at TEXT NOT NULL
 );
+
+-- Performance & Resilience Indexes
+CREATE INDEX IF NOT EXISTS idx_party_ledger_party_time 
+ON party_ledger(party_id, occurred_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_sales_status_created 
+ON sales(status, created_at);
+
