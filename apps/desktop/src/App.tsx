@@ -10,6 +10,8 @@ import { PurchasingView } from "./components/PurchasingView";
 import { StockAuditView } from "./components/StockAuditView";
 import { CheckoutView } from "./components/CheckoutView";
 import { KhataView } from "./components/KhataView";
+import { ReportsView } from "./components/ReportsView";
+import { BackupView } from "./components/BackupView";
 import { SystemStatusDto } from "./lib/contracts";
 import {
   ShieldCheck,
@@ -29,13 +31,15 @@ import {
   ClipboardCheck,
   ShoppingCart,
   BookOpen,
+  BarChart3,
+  HardDriveDownload,
 } from "lucide-react";
 
 function AppContent() {
   const { t } = useTranslation();
   const { language, toggleLanguage } = useAppLanguage();
 
-  const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "khata" | "audit" | "master" | "dashboard" | "wizard">("checkout");
+  const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "khata" | "reports" | "backup" | "audit" | "master" | "dashboard" | "wizard">("checkout");
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
@@ -124,6 +128,28 @@ function AppContent() {
           >
             <BookOpen className="w-3.5 h-3.5" />
             Khata (کھاتہ)
+          </button>
+          <button
+            onClick={() => setActiveTab("reports")}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === "reports"
+                ? "bg-emerald-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            Reports (رپورٹس)
+          </button>
+          <button
+            onClick={() => setActiveTab("backup")}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === "backup"
+                ? "bg-emerald-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <HardDriveDownload className="w-3.5 h-3.5" />
+            Backup (بیک اپ)
           </button>
           <button
             onClick={() => setActiveTab("audit")}
@@ -218,6 +244,10 @@ function AppContent() {
         {activeTab === "purchasing" && <PurchasingView />}
 
         {activeTab === "khata" && <KhataView />}
+
+        {activeTab === "reports" && <ReportsView />}
+
+        {activeTab === "backup" && <BackupView />}
 
         {activeTab === "audit" && <StockAuditView />}
 

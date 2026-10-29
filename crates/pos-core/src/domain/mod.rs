@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod brand;
 pub mod cart;
 pub mod catalog;
@@ -15,6 +16,7 @@ pub mod shift;
 pub mod stock_count;
 pub mod unit;
 
+pub use analytics::{AnalyticsRepo, CategoryPerformance, FinancialSummary, InventoryValuation, TopProduct};
 pub use brand::{Brand, BrandRepo};
 pub use cart::{Cart, CartLine, CartRepo, ParkedCartSummary};
 pub use catalog::{CatalogRepo, CreatePackagingUnitParams, CreateProductParams, ProductSearchResult};

@@ -340,5 +340,13 @@
     "debit": "Debit (+)",
     "credit": "Credit (-)",
     "balance": "Balance"
+  },
+  "reports": {
+    "title": "Business Analytics & Performance",
+    "subtitle": "Real-time financial summary, COGS, gross margin, category performance, and velocity ranking."
+  },
+  "backup": {
+    "title": "Database Protection & Encrypted Backup",
+    "subtitle": "Automated 30-minute WAL live snapshots, 24-hour rolling retention, and AES encrypted USB export."
   }
 }
