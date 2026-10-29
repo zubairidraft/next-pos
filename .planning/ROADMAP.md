@@ -57,14 +57,20 @@ Plans:
 - [x] 02-04: First-run setup wizard, cashier PIN quick-switch modal, and master data management views.
 
 ### Phase 3: Catalog & High-Volume Data Import
-**Goal**: Build the full product catalog supporting variants, units of measure, price tiers, and high-speed Excel/CSV import for 50,000+ items.  
-**Depends on**: Phase 2  
-**Requirements**: PROD-01, IMP-01  
+**Goal**: Build the full product catalog supporting variants, units of measure, price tiers, and high-speed Excel/CSV import for 50,000+ items.
+**Depends on**: Phase 2
+**Requirements**: PROD-01, IMP-01
 **Success Criteria**:
   1. An Excel sheet with 50,000 products imports in under 30 seconds with duplicate validation.
   2. Product searches by barcode, SKU, English name, or Urdu name return in under 100ms.
   3. Products support multiple packaging units (e.g., carton of 24 pieces) with automatic unit conversion factors.
-**Plans**: TBD
+**Plans**: 4 plans (03-01 to 03-04)
+
+Plans:
+- [ ] 03-01: Core catalog domain models, SQLite index migrations, packaging unit conversions, and sub-100ms multi-script search.
+- [ ] 03-02: High-speed streaming CSV/Excel catalog importer with batch chunking and 50,000-item benchmark (< 30s).
+- [ ] 03-03: Desktop catalog management table, scanner-first search, and bilingual product creation modal.
+- [ ] 03-04: Bulk importer modal with template download, live progress bar, validation error summary, and shell integration.
 
 ### Phase 4: Purchasing, Costing & Stock Ledger
 **Goal**: Implement the immutable stock movement ledger, purchase invoice entry, landed cost allocation, and weighted-average costing with strict negative stock blocking.  
@@ -155,3 +161,4 @@ Plans:
   2. Signed production Windows installer (.msi / .exe) ready for dealer distribution.
   3. At least 4 out of 5 pilot shop owners express willingness to pay full price for annual renewal.
 **Plans**: TBD
+
