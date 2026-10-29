@@ -12,6 +12,8 @@ import { CheckoutView } from "./components/CheckoutView";
 import { KhataView } from "./components/KhataView";
 import { ReportsView } from "./components/ReportsView";
 import { BackupView } from "./components/BackupView";
+import { LicenseView } from "./components/LicenseView";
+import { IndustryPacksView } from "./components/IndustryPacksView";
 import { SystemStatusDto } from "./lib/contracts";
 import {
   ShieldCheck,
@@ -33,13 +35,14 @@ import {
   BookOpen,
   BarChart3,
   HardDriveDownload,
+  Key,
 } from "lucide-react";
 
 function AppContent() {
   const { t } = useTranslation();
   const { language, toggleLanguage } = useAppLanguage();
 
-  const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "khata" | "reports" | "backup" | "audit" | "master" | "dashboard" | "wizard">("checkout");
+  const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "khata" | "reports" | "backup" | "packs" | "license" | "audit" | "master" | "dashboard" | "wizard">("checkout");
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
@@ -152,6 +155,28 @@ function AppContent() {
             Backup (بیک اپ)
           </button>
           <button
+            onClick={() => setActiveTab("packs")}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === "packs"
+                ? "bg-emerald-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Boxes className="w-3.5 h-3.5" />
+            Packs (انڈسٹری)
+          </button>
+          <button
+            onClick={() => setActiveTab("license")}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === "license"
+                ? "bg-emerald-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Key className="w-3.5 h-3.5" />
+            License (لائسنس)
+          </button>
+          <button
             onClick={() => setActiveTab("audit")}
             className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
               activeTab === "audit"
@@ -248,6 +273,10 @@ function AppContent() {
         {activeTab === "reports" && <ReportsView />}
 
         {activeTab === "backup" && <BackupView />}
+
+        {activeTab === "packs" && <IndustryPacksView />}
+
+        {activeTab === "license" && <LicenseView />}
 
         {activeTab === "audit" && <StockAuditView />}
 

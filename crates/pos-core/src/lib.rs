@@ -4,6 +4,7 @@ pub mod db;
 pub mod domain;
 pub mod error;
 pub mod hardware;
+pub mod licensing;
 pub mod money;
 
 pub fn pos_core_version() -> &'static str {

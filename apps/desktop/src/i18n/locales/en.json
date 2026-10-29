@@ -348,5 +348,13 @@
   "backup": {
     "title": "Database Protection & Encrypted Backup",
     "subtitle": "Automated 30-minute WAL live snapshots, 24-hour rolling retention, and AES encrypted USB export."
+  },
+  "license": {
+    "title": "Commercial Licensing & Machine Activation",
+    "subtitle": "Air-gapped cryptographic Ed25519 offline license verification tied to hardware fingerprint."
+  },
+  "packs": {
+    "title": "Industry Specialized Modules",
+    "subtitle": "Supermarket weighing scale barcodes, IMEI serial lifecycle tracking, and apparel matrix variants."
   }
 }
