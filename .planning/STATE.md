@@ -3,10 +3,10 @@ gsd_state_version: '1.0'
 status: ready_to_execute
 progress:
   total_phases: 12
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 48
-  completed_plans: 28
-  percent: 58
+  completed_plans: 32
+  percent: 67
 ---
 
 # Project State
@@ -16,23 +16,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-28)
 
 **Core value:** Uninterrupted, zero-data-loss local retail operation that runs 100% offline with sub-100ms scan-to-cart performance and immutable, audited transaction posting.  
-**Current focus:** Phase 8: Khata (Customer/Vendor Credit) & WhatsApp Sharing
+**Current focus:** Phase 9: Analytics, Reporting & Encrypted Backup
 
 ## Current Position
 
-Phase: 7 of 12 (Hardware Printing, Receipts & Cash Sessions) — COMPLETED  
-Next Phase: Phase 8 (Khata [Customer/Vendor Credit] & WhatsApp Sharing)  
-Status: Phase 7 complete with all 4 plans executed, 39 tests passing, and UI verified. Ready to execute Phase 8.  
-Last activity: 2026-10-29 — Executed Phase 7: ESC/POS thermal receipt engine with 1-bit Urdu raster graphics, cash drawer solenoid kick, cashier shift sessions with Z-reports, sales returns with stock replenishment, and hardware desktop UI.
+Phase: 8 of 12 (Khata [Customer/Vendor Credit] & WhatsApp Sharing) — COMPLETED  
+Next Phase: Phase 9 (Analytics, Reporting & Encrypted Backup)  
+Status: Phase 8 complete with all 4 plans executed, 44 tests passing, and UI verified. Ready to execute Phase 9.  
+Last activity: 2026-10-29 — Executed Phase 8: Khata running balance ledgers in integer Paisa, FIFO multi-invoice payment allocations, customer credit limits & aging reports, zero-dependency WhatsApp reminder URL builder, and desktop Khata dashboard.
 
-Progress: [███████░░░░░] 58%
+Progress: [████████░░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 28 of 48
+- Total plans completed: 32 of 48
 - Average duration: 15 min
-- Total execution time: 7.0 hours
+- Total execution time: 8.0 hours
 
 **By Phase:**
 
@@ -45,8 +45,8 @@ Progress: [███████░░░░░] 58%
 | Phase 5: Stock Audits, Discrepancies & Label Designer | Completed | 4/4 | Complete |
 | Phase 6: POS Checkout & Transaction Engine | Completed | 4/4 | Complete |
 | Phase 7: Hardware Printing, Receipts & Cash Sessions | Completed | 4/4 | Complete |
-| Phase 8: Khata (Customer/Vendor Credit) & WhatsApp Sharing | Ready to Execute | 0/4 | Complete |
-| Phase 9: Analytics, Reporting & Encrypted Backup | Planned | 0/4 | Complete |
+| Phase 8: Khata (Customer/Vendor Credit) & WhatsApp Sharing | Completed | 4/4 | Complete |
+| Phase 9: Analytics, Reporting & Encrypted Backup | Ready to Execute | 0/4 | Complete |
 | Phase 10: Licensing, Updates & Industry Packs | Planned | 0/4 | Complete |
 | Phase 11: Resilience Testing, Security Audit & Pilot Deployment | Planned | 0/4 | Complete |
 | Phase 12: Pilot Hardening & General Availability Launch | Planned | 0/4 | Complete |
@@ -62,3 +62,4 @@ Progress: [███████░░░░░] 58%
 - **Thermal Receipt & Hardware Control**: ESC/POS generator with 58mm/80mm roll layouts, 1-bit monochrome Urdu raster graphics (`GS v 0`), paper cut, and RJ11 solenoid kick pulse (`ESC p 0 25 250`).
 - **Shift Balancing & Daily Z-Reports**: Opening float tracking, petty cash expense logging, physical Pakistani note counter, and zero-discrepancy daily Z-Report compilation.
 - **Validated Sales Returns**: Enforces quantity limits against original invoice lines, restores sellable stock to inventory ledger, and issues cash or Khata credit refunds under `RET-` sequence.
+- **Khata Ledgers & FIFO Allocation**: Immutable running balance ledgers in `party_ledger`, automated FIFO payment distribution across open invoices, credit limit enforcement, and offline WhatsApp deep links with bilingual reminder messages.

@@ -4,6 +4,7 @@ pub mod catalog;
 pub mod category;
 pub mod importer;
 pub mod inventory;
+pub mod khata;
 pub mod party;
 pub mod purchase;
 pub mod reconcile;
@@ -20,6 +21,10 @@ pub use catalog::{CatalogRepo, CreatePackagingUnitParams, CreateProductParams, P
 pub use category::{Category, CategoryRepo};
 pub use importer::{CatalogImporter, ImportRow, ImportRowError, ImportSummary};
 pub use inventory::{InventoryBalance, InventoryBalanceView, InventoryRepo, RecordMovementParams, StockMovement};
+pub use khata::{
+    AgingReportBucket, CreditCheckResult, InvoiceAllocation, KhataRepo, KhataStatement,
+    LedgerEntry, PaymentAllocationResult,
+};
 pub use party::{CreatePartyParams, Party, PartyRepo};
 pub use purchase::{CreatePurchaseInput, CreatePurchaseLineInput, PurchaseInvoice, PurchaseInvoiceLine, PurchaseRepo};
 pub use reconcile::{RebuildSummary, ReconcileEngine};

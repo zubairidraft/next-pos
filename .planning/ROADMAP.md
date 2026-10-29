@@ -147,10 +147,10 @@ Plans:
 **Plans**: 4 plans (08-01 to 08-04)
 
 Plans:
-- [ ] 08-01: Customer and vendor Khata ledgers with continuous running balance in `Paisa(i64)`.
-- [ ] 08-02: Automated FIFO payment allocation across unpaid invoices and customer credit limit enforcement.
-- [ ] 08-03: Bilingual statement generator and offline WhatsApp deep-link payment reminder builder.
-- [ ] 08-04: Khata desktop UI with receivables/payables dashboard, payment receipt modal, and WhatsApp share trigger.
+- [x] 08-01: Customer and vendor Khata ledgers with continuous running balance in `Paisa(i64)`.
+- [x] 08-02: Automated FIFO payment allocation across unpaid invoices and customer credit limit enforcement.
+- [x] 08-03: Bilingual statement generator and offline WhatsApp deep-link payment reminder builder.
+- [x] 08-04: Khata desktop UI with receivables/payables dashboard, payment receipt modal, and WhatsApp share trigger.
 
 ### Phase 9: Analytics, Reporting & Encrypted Backup
 **Goal**: Provide offline financial and inventory analytics, automated background database snapshots, encrypted USB backups, and a tested restore wizard.  

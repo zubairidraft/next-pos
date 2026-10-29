@@ -312,5 +312,33 @@
     "refund_method": "Refund Method",
     "post_return_btn": "Process Return & Issue Credit Note",
     "return_success": "Return completed successfully! Credit Note: "
+  },
+  "khata": {
+    "title": "Khata Ledgers & Credit Book",
+    "subtitle": "Track customer receivables and vendor payables with running balances, FIFO payment allocations, and WhatsApp statements",
+    "tab_customers": "Customer Khata (Receivables)",
+    "tab_vendors": "Vendor Khata (Payables)",
+    "total_receivables": "Total Receivables (Customer Credit)",
+    "total_payables": "Total Payables (Vendor Dues)",
+    "overdue_accounts": "Accounts Over Limit",
+    "aging_title": "Receivables Aging Analysis",
+    "search_placeholder": "Search by name, Urdu name, or phone...",
+    "receive_payment": "Receive Payment",
+    "view_statement": "Statement",
+    "whatsapp_reminder": "WhatsApp Reminder",
+    "print_statement": "Print Thermal Statement",
+    "credit_limit": "Credit Limit",
+    "unlimited": "No Limit",
+    "limit_breached": "Credit Limit Breached",
+    "fifo_title": "FIFO Invoice Payment Allocation Preview",
+    "payment_method": "Payment Method",
+    "amount_received": "Amount Received (PKR)",
+    "payment_success": "Payment posted and allocated successfully!",
+    "unallocated_credit": "Overpayment recorded as credit advance: ",
+    "opening_balance": "Opening Balance",
+    "closing_balance": "Current Outstanding Balance",
+    "debit": "Debit (+)",
+    "credit": "Credit (-)",
+    "balance": "Balance"
   }
 }

@@ -9,6 +9,7 @@ import { BulkImportModal } from "./components/BulkImportModal";
 import { PurchasingView } from "./components/PurchasingView";
 import { StockAuditView } from "./components/StockAuditView";
 import { CheckoutView } from "./components/CheckoutView";
+import { KhataView } from "./components/KhataView";
 import { SystemStatusDto } from "./lib/contracts";
 import {
   ShieldCheck,
@@ -27,13 +28,14 @@ import {
   Truck,
   ClipboardCheck,
   ShoppingCart,
+  BookOpen,
 } from "lucide-react";
 
 function AppContent() {
   const { t } = useTranslation();
   const { language, toggleLanguage } = useAppLanguage();
 
-  const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "audit" | "master" | "dashboard" | "wizard">("checkout");
+  const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "khata" | "audit" | "master" | "dashboard" | "wizard">("checkout");
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
@@ -111,6 +113,17 @@ function AppContent() {
           >
             <Truck className="w-3.5 h-3.5" />
             {t("nav.inventory")}
+          </button>
+          <button
+            onClick={() => setActiveTab("khata")}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === "khata"
+                ? "bg-emerald-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            Khata (کھاتہ)
           </button>
           <button
             onClick={() => setActiveTab("audit")}
@@ -203,6 +216,8 @@ function AppContent() {
         )}
 
         {activeTab === "purchasing" && <PurchasingView />}
+
+        {activeTab === "khata" && <KhataView />}
 
         {activeTab === "audit" && <StockAuditView />}
 
