@@ -57,9 +57,9 @@ Plans:
 - [x] 02-04: First-run setup wizard, cashier PIN quick-switch modal, and master data management views.
 
 ### Phase 3: Catalog & High-Volume Data Import
-**Goal**: Build the full product catalog supporting variants, units of measure, price tiers, and high-speed Excel/CSV import for 50,000+ items.
-**Depends on**: Phase 2
-**Requirements**: PROD-01, IMP-01
+**Goal**: Build the full product catalog supporting variants, units of measure, price tiers, and high-speed Excel/CSV import for 50,000+ items.  
+**Depends on**: Phase 2  
+**Requirements**: PROD-01, IMP-01  
 **Success Criteria**:
   1. An Excel sheet with 50,000 products imports in under 30 seconds with duplicate validation.
   2. Product searches by barcode, SKU, English name, or Urdu name return in under 100ms.
@@ -80,7 +80,13 @@ Plans:
   1. Stock movements are recorded immutably in base units for every inbound purchase and opening balance.
   2. Weighted-average cost recalculates accurately upon purchase receipt with allocated freight charges.
   3. Attempts to record inventory deductions that would breach on-hand stock are blocked strictly according to shop policy.
-**Plans**: TBD
+**Plans**: 4 plans (04-01 to 04-04)
+
+Plans:
+- [ ] 04-01: Immutable stock movement ledger, balance cache updates, and strict negative stock enforcement (`Block`).
+- [ ] 04-02: Purchase order and receiving entry with multi-tier landed cost distribution in `Paisa(i64)`.
+- [ ] 04-03: Moving-weighted-average cost recalculation engine with audit trail.
+- [ ] 04-04: Purchasing desktop UI with supplier selection, batch line entry, landed cost wizard, and stock ledger inspector.
 
 ### Phase 5: Stock Audits, Discrepancies & Label Designer
 **Goal**: Provide purchase returns, inventory adjustments, stock count sessions with variance approvals, cache rebuilding, and thermal barcode label printing.  
@@ -90,7 +96,13 @@ Plans:
   1. Cache rebuild tool reconstructs `inventory_balances` identically from raw `stock_movements` on a 100,000-movement test dataset.
   2. Stock audit workflow tracks physical counts vs expected stock and posts audited adjustment entries.
   3. Thermal label designer produces ready-to-print barcode labels (38x25mm and 50x30mm) with English and Urdu item names.
-**Plans**: TBD
+**Plans**: 4 plans (05-01 to 05-04)
+
+Plans:
+- [ ] 05-01: Purchase returns to vendors with automated negative stock prevention and cost recovery.
+- [ ] 05-02: Stock adjustments with reason codes and inventory cache rebuild verification engine.
+- [ ] 05-03: Physical stock count sessions, blind auditing, and variance approval workflow.
+- [ ] 05-04: Thermal barcode label designer (38x25mm and 50x30mm) with bilingual typography and batch print queue.
 
 ### Phase 6: POS Checkout & Transaction Engine
 **Goal**: Build the cashier checkout screen with continuous scanner focus, parked carts, price tiers, split tenders, and atomic `BEGIN IMMEDIATE` sale posting.  
@@ -100,7 +112,13 @@ Plans:
   1. Barcode scanning adds items in under 100ms with keyboard shortcuts for all operations.
   2. Multiple sales carts can be parked and retrieved, surviving unexpected application restarts.
   3. Every completed checkout posts atomically in a single transaction that updates stock, ledgers, and cash balances without partial records.
-**Plans**: TBD
+**Plans**: 4 plans (06-01 to 06-04)
+
+Plans:
+- [ ] 06-01: High-speed POS cart state machine with continuous scanner focus, hotkeys, and price tier resolution.
+- [ ] 06-02: Parked cart (Hold/Recall) manager with persistent disk state across sudden application restarts.
+- [ ] 06-03: Split-tender payment engine (Cash, Card, Khata Credit, Bank Transfer) with atomic `BEGIN IMMEDIATE` sale posting.
+- [ ] 06-04: Fullscreen POS cashier interface in React with high-speed keyboard shortcuts and touch-friendly numpad.
 
 ### Phase 7: Hardware Printing, Receipts & Cash Sessions
 **Goal**: Integrate ESC/POS thermal printers (58mm/80mm) with 1-bit Urdu raster bitmap printing, cash drawer kick, returns, and cashier cash shift management.  
@@ -110,7 +128,13 @@ Plans:
   1. Thermal receipts with Nastaliq Urdu render cleanly via 1-bit raster bitmaps across standard printers.
   2. Cash drawer kicks automatically upon cash tendering.
   3. Cash sessions track opening float, expected tenders, and discrepancies to produce a verified Z-report.
-**Plans**: TBD
+**Plans**: 4 plans (07-01 to 07-04)
+
+Plans:
+- [ ] 07-01: ESC/POS thermal receipt engine with 1-bit monochrome Urdu Nastaliq raster bitmaps (58mm/80mm).
+- [ ] 07-02: Hardware kick pulse for cash drawers (RJ11 solenoid pulse) and manual drawer control.
+- [ ] 07-03: Cashier shift sessions with opening float, cash drops/payouts, and verified daily Z-Report generation.
+- [ ] 07-04: POS receipt preview, sales returns workflow, and cashier shift reconciliation UI.
 
 ### Phase 8: Khata (Customer/Vendor Credit) & WhatsApp Sharing
 **Goal**: Deliver native Pakistani Khata ledger management, credit limit validation, payment allocations, and WhatsApp statement distribution.  
@@ -120,7 +144,13 @@ Plans:
   1. Credit sales increase customer balance, with credit limits strictly enforced or manager-overridden.
   2. Payment allocations automatically settle oldest open invoices (FIFO) or allow manual invoice allocation.
   3. Formatted account statements in English or Urdu generate as PDF/images and open directly in WhatsApp with customer phone numbers.
-**Plans**: TBD
+**Plans**: 4 plans (08-01 to 08-04)
+
+Plans:
+- [ ] 08-01: Customer and vendor Khata ledgers with continuous running balance in `Paisa(i64)`.
+- [ ] 08-02: Automated FIFO payment allocation across unpaid invoices and customer credit limit enforcement.
+- [ ] 08-03: Bilingual statement generator and offline WhatsApp deep-link payment reminder builder.
+- [ ] 08-04: Khata desktop UI with receivables/payables dashboard, payment receipt modal, and WhatsApp share trigger.
 
 ### Phase 9: Analytics, Reporting & Encrypted Backup
 **Goal**: Provide offline financial and inventory analytics, automated background database snapshots, encrypted USB backups, and a tested restore wizard.  
@@ -130,7 +160,13 @@ Plans:
   1. Comprehensive offline reports (sales by item/category/cashier, gross profit, stock valuation, khata aging) export to PDF, CSV, and XLSX.
   2. Automatic SQLite snapshots take place every 30 minutes without locking the checkout cashier.
   3. Restore wizard successfully restores an encrypted backup file on a fresh machine with zero data corruption.
-**Plans**: TBD
+**Plans**: 4 plans (09-01 to 09-04)
+
+Plans:
+- [ ] 09-01: Offline reporting engine: daily/period sales summary, profit & loss, inventory valuation, and cashier performance.
+- [ ] 09-02: Automated 30-minute non-blocking SQLite WAL background snapshotter and rotation policy.
+- [ ] 09-03: AES-256-GCM encrypted USB backup bundle (`.kpos`) and verified pre-restore integrity engine.
+- [ ] 09-04: Reports dashboard with date range filters, export utilities, and backup/restore wizard UI.
 
 ### Phase 10: Licensing, Updates & Industry Packs
 **Goal**: Implement Ed25519 offline license validation, machine fingerprinting, trial periods, and industry-specific packs for Grocery and Electronics.  
@@ -140,7 +176,13 @@ Plans:
   1. App activates completely offline using a signed license code generated from a machine fingerprint.
   2. Grocery pack decodes scale-printed barcodes (prefix 20–29) and supports vegetable quick-keys.
   3. Electronics pack records IMEI/serial numbers on purchase and sale, and prints warranty cards.
-**Plans**: TBD
+**Plans**: 4 plans (10-01 to 10-04)
+
+Plans:
+- [ ] 10-01: Air-gapped Ed25519 offline license verification and Windows hardware fingerprint generator.
+- [ ] 10-02: Grocery pack: scale-embedded price/weight barcode parser (prefixes 20-29) and tare deduction.
+- [ ] 10-03: Electronics pack: IMEI/serial number tracking on purchase and sale, and apparel matrix variants.
+- [ ] 10-04: License activation interface with machine fingerprint copy, trial indicator, and industry pack switchers.
 
 ### Phase 11: Resilience Testing, Security Audit & Pilot Deployment
 **Goal**: Execute rigorous resilience testing (power-pull drills, 1M record benchmarks), conduct an ASVS Level 1 security audit, publish the Urdu operator manual, and deploy to 5 pilot shops.  
@@ -150,7 +192,13 @@ Plans:
   1. The system survives 20 consecutive power-pull tests during active posting without corrupted records or lost committed data.
   2. Pilot shops successfully complete at least 2 weeks of live retail operation with zero data-loss incidents.
   3. Average cashier checkout time per 5 items is verified under 30 seconds.
-**Plans**: TBD
+**Plans**: 4 plans (11-01 to 11-04)
+
+Plans:
+- [ ] 11-01: Power-cut simulation harness and SQLite WAL crash-recovery stress tests.
+- [ ] 11-02: 1,000,000-row heavy load benchmark, query execution plan verification, and memory profiling.
+- [ ] 11-03: ASVS Level 1 local app security review: SQLCipher key isolation, command authorization, and log sanitization.
+- [ ] 11-04: Bilingual cashier training quick reference manual and automated system diagnostics health checker.
 
 ### Phase 12: Pilot Hardening & General Availability Launch
 **Goal**: Address pilot shop feedback, certify standard market thermal printers and scanners, finalize dealer onboarding material, and release v1.0.  
@@ -160,6 +208,10 @@ Plans:
   1. Zero critical or high severity bugs open.
   2. Signed production Windows installer (.msi / .exe) ready for dealer distribution.
   3. At least 4 out of 5 pilot shop owners express willingness to pay full price for annual renewal.
-**Plans**: TBD
+**Plans**: 4 plans (12-01 to 12-04)
 
-
+Plans:
+- [ ] 12-01: Pilot shop ergonomics refinement: high-contrast theme, touch numpad targets, and scanner rapid-fire buffer.
+- [ ] 12-02: Certified Pakistani hardware compatibility matrix and ESC/POS diagnostic alignment suite.
+- [ ] 12-03: Standalone offline dealer license provisioning CLI tool (`crates/pos-license-cli`).
+- [ ] 12-04: Production NSIS Windows bundle, embedded asset packaging, and GA v1.0 release pipeline.
