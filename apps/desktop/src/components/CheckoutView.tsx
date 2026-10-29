@@ -18,6 +18,8 @@ import {
   RotateCcw,
   Printer,
   Receipt,
+  Sun,
+  Grid3X3,
 } from "lucide-react";
 
 // Mock catalog item for immediate scanning & testing
@@ -149,6 +151,34 @@ export const CheckoutView: React.FC = () => {
 
   const [recentSale, setRecentSale] = useState<SaleSummary | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [highContrast, setHighContrast] = useState(false);
+  const [touchNumpadOpen, setTouchNumpadOpen] = useState(false);
+
+  const handleNumpadInput = (val: string) => {
+    if (val === "C") {
+      setBarcodeInput("");
+    } else if (val === "BACK") {
+      setBarcodeInput((prev) => prev.slice(0, -1));
+    } else if (val === "ENTER") {
+      const query = barcodeInput.trim();
+      if (query) {
+        const match = SAMPLE_PRODUCTS.find(
+          (p) =>
+            p.barcode === query ||
+            p.sku.toLowerCase() === query.toLowerCase() ||
+            p.name.toLowerCase().includes(query.toLowerCase())
+        );
+        if (match) {
+          addProductToCart(match);
+        } else {
+          alert(`No product matching barcode or SKU: "${query}"`);
+        }
+        setBarcodeInput("");
+      }
+    } else {
+      setBarcodeInput((prev) => prev + val);
+    }
+  };
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -477,9 +507,63 @@ export const CheckoutView: React.FC = () => {
               >
                 <Printer className="w-4 h-4 text-indigo-400" />
               </button>
+
+              <button
+                type="button"
+                onClick={() => setTouchNumpadOpen(!touchNumpadOpen)}
+                className={`p-2 border rounded-xl transition ${
+                  touchNumpadOpen
+                    ? "bg-emerald-600 text-white border-emerald-500 shadow-sm"
+                    : "bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800"
+                }`}
+                title="Toggle Touchscreen Numpad / ٹچ پیڈ"
+              >
+                <Grid3X3 className="w-4 h-4 text-emerald-400" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setHighContrast(!highContrast)}
+                className={`p-2 border rounded-xl transition ${
+                  highContrast
+                    ? "bg-amber-500 text-black border-amber-400 shadow-sm font-bold"
+                    : "bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800"
+                }`}
+                title="High-Contrast Sunlight Mode / تیز روشنی موڈ"
+              >
+                <Sun className="w-4 h-4 text-amber-400" />
+              </button>
             </div>
           </div>
         </div>
+
+        {/* 48x48px Touchscreen Numpad Overlay for All-in-One POS Monitors */}
+        {touchNumpadOpen && (
+          <div className="bg-slate-950 border border-emerald-900/40 rounded-xl p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold text-emerald-400">Touchscreen Input (48px Ergonomic Keypad)</span>
+              <span>Buffer: {barcodeInput || "Empty"}</span>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {["7", "8", "9", "C", "4", "5", "6", "BACK", "1", "2", "3", "ENTER", "0", "00", ".", "+"].map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => handleNumpadInput(k)}
+                  className={`h-12 rounded-xl text-base font-bold flex items-center justify-center transition active:scale-95 ${
+                    k === "ENTER"
+                      ? "bg-emerald-600 hover:bg-emerald-500 text-white col-span-1 shadow-md shadow-emerald-950"
+                      : k === "C" || k === "BACK"
+                      ? "bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-800/60"
+                      : "bg-slate-900 hover:bg-slate-800 text-white border border-slate-800"
+                  }`}
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Cart Line Items Table */}
         <div className="flex-1 bg-slate-950/50 border border-slate-800/80 rounded-xl overflow-hidden flex flex-col">

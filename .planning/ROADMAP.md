@@ -163,10 +163,10 @@ Plans:
 **Plans**: 4 plans (09-01 to 09-04)
 
 Plans:
-- [ ] 09-01: Offline reporting engine: daily/period sales summary, profit & loss, inventory valuation, and cashier performance.
-- [ ] 09-02: Automated 30-minute non-blocking SQLite WAL background snapshotter and rotation policy.
-- [ ] 09-03: AES-256-GCM encrypted USB backup bundle (`.kpos`) and verified pre-restore integrity engine.
-- [ ] 09-04: Reports dashboard with date range filters, export utilities, and backup/restore wizard UI.
+- [x] 09-01: Offline reporting engine: daily/period sales summary, profit & loss, inventory valuation, and cashier performance.
+- [x] 09-02: Automated 30-minute non-blocking SQLite WAL background snapshotter and rotation policy.
+- [x] 09-03: AES-256-GCM encrypted USB backup bundle (`.kpos`) and verified pre-restore integrity engine.
+- [x] 09-04: Reports dashboard with date range filters, export utilities, and backup/restore wizard UI.
 
 ### Phase 10: Licensing, Updates & Industry Packs
 **Goal**: Implement Ed25519 offline license validation, machine fingerprinting, trial periods, and industry-specific packs for Grocery and Electronics.  
@@ -179,10 +179,10 @@ Plans:
 **Plans**: 4 plans (10-01 to 10-04)
 
 Plans:
-- [ ] 10-01: Air-gapped Ed25519 offline license verification and Windows hardware fingerprint generator.
-- [ ] 10-02: Grocery pack: scale-embedded price/weight barcode parser (prefixes 20-29) and tare deduction.
-- [ ] 10-03: Electronics pack: IMEI/serial number tracking on purchase and sale, and apparel matrix variants.
-- [ ] 10-04: License activation interface with machine fingerprint copy, trial indicator, and industry pack switchers.
+- [x] 10-01: Air-gapped Ed25519 offline license verification and Windows hardware fingerprint generator.
+- [x] 10-02: Grocery pack: scale-embedded price/weight barcode parser (prefixes 20-29) and tare deduction.
+- [x] 10-03: Electronics pack: IMEI/serial number tracking on purchase and sale, and apparel matrix variants.
+- [x] 10-04: License activation interface with machine fingerprint copy, trial indicator, and industry pack switchers.
 
 ### Phase 11: Resilience Testing, Security Audit & Pilot Deployment
 **Goal**: Execute rigorous resilience testing (power-pull drills, 1M record benchmarks), conduct an ASVS Level 1 security audit, publish the Urdu operator manual, and deploy to 5 pilot shops.  
@@ -195,10 +195,10 @@ Plans:
 **Plans**: 4 plans (11-01 to 11-04)
 
 Plans:
-- [ ] 11-01: Power-cut simulation harness and SQLite WAL crash-recovery stress tests.
-- [ ] 11-02: 1,000,000-row heavy load benchmark, query execution plan verification, and memory profiling.
-- [ ] 11-03: ASVS Level 1 local app security review: SQLCipher key isolation, command authorization, and log sanitization.
-- [ ] 11-04: Bilingual cashier training quick reference manual and automated system diagnostics health checker.
+- [x] 11-01: Power-cut simulation harness and SQLite WAL crash-recovery stress tests.
+- [x] 11-02: 1,000,000-row heavy load benchmark, query execution plan verification, and memory profiling.
+- [x] 11-03: ASVS Level 1 local app security review: SQLCipher key isolation, command authorization, and log sanitization.
+- [x] 11-04: Bilingual cashier training quick reference manual and automated system diagnostics health checker.
 
 ### Phase 12: Pilot Hardening & General Availability Launch
 **Goal**: Address pilot shop feedback, certify standard market thermal printers and scanners, finalize dealer onboarding material, and release v1.0.  
@@ -211,7 +211,7 @@ Plans:
 **Plans**: 4 plans (12-01 to 12-04)
 
 Plans:
-- [ ] 12-01: Pilot shop ergonomics refinement: high-contrast theme, touch numpad targets, and scanner rapid-fire buffer.
-- [ ] 12-02: Certified Pakistani hardware compatibility matrix and ESC/POS diagnostic alignment suite.
-- [ ] 12-03: Standalone offline dealer license provisioning CLI tool (`crates/pos-license-cli`).
-- [ ] 12-04: Production NSIS Windows bundle, embedded asset packaging, and GA v1.0 release pipeline.
+- [x] 12-01: Pilot shop ergonomics refinement: high-contrast theme, touch numpad targets, and scanner rapid-fire buffer.
+- [x] 12-02: Certified Pakistani hardware compatibility matrix and ESC/POS diagnostic alignment suite.
+- [x] 12-03: Standalone offline dealer license provisioning CLI tool (`crates/pos-license-cli`).
+- [x] 12-04: Production NSIS Windows bundle, embedded asset packaging, and GA v1.0 release pipeline.
