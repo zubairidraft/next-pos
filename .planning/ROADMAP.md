@@ -7,7 +7,7 @@ Next POS is delivered across 12 focused implementation phases (corresponding to 
 ## Phases
 
 - [x] **Phase 1: Foundation, Data Engine & Architecture** - Monorepo setup, Tauri 2 shell, pos-core crate, SQLCipher encrypted database, migrations, and Paisa/Qty precision arithmetic types.
-- [ ] **Phase 2: Security, Master Data & Urdu Localization** - User accounts, RBAC, cashier PIN quick-switching, system settings, first-run wizard, and complete English/Urdu RTL interface.
+- [x] **Phase 2: Security, Master Data & Urdu Localization** - User accounts, RBAC, cashier PIN quick-switching, system settings, first-run wizard, and complete English/Urdu RTL interface.
 - [ ] **Phase 3: Catalog & High-Volume Data Import** - Products, variants, unit conversions, multi-tier price lists, barcode management, and high-performance Excel/CSV importer for 50,000+ items.
 - [ ] **Phase 4: Purchasing, Costing & Stock Ledger** - Immutable stock movement ledger, vendor invoices, landed cost distribution, and weighted-average costing with Block on negative stock.
 - [ ] **Phase 5: Stock Audits, Discrepancies & Label Designer** - Purchase returns, stock adjustments, physical count sessions, inventory cache rebuild tool, and thermal barcode label designer.
@@ -51,10 +51,10 @@ Plans:
 **Plans**: 4 plans (02-01 to 02-04)
 
 Plans:
-- [ ] 02-01: Authentication & role permissions in pos-core with Argon2id password and PIN hashing.
-- [ ] 02-02: Bilingual master data repositories (categories, brands, units, settings) with dual-script search.
-- [ ] 02-03: Client-side i18n framework, locally bundled Urdu typography, and dynamic RTL layout mirroring.
-- [ ] 02-04: First-run setup wizard, cashier PIN quick-switch modal, and master data management views.
+- [x] 02-01: Authentication & role permissions in pos-core with Argon2id password and PIN hashing.
+- [x] 02-02: Bilingual master data repositories (categories, brands, units, settings) with dual-script search.
+- [x] 02-03: Client-side i18n framework, locally bundled Urdu typography, and dynamic RTL layout mirroring.
+- [x] 02-04: First-run setup wizard, cashier PIN quick-switch modal, and master data management views.
 
 ### Phase 3: Catalog & High-Volume Data Import
 **Goal**: Build the full product catalog supporting variants, units of measure, price tiers, and high-speed Excel/CSV import for 50,000+ items.  

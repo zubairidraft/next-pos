@@ -7,6 +7,19 @@
   color-scheme: dark;
 }
 
+/* Urdu Typography & RTL Enhancements */
+html[dir="rtl"] {
+  font-family: "Noto Nastaliq Urdu", "Urdu Typesetting", "Jameel Noori Nastaleeq", "Segoe UI", Tahoma, sans-serif;
+  line-height: 1.8;
+}
+
+html[dir="rtl"] input,
+html[dir="rtl"] button,
+html[dir="rtl"] select,
+html[dir="rtl"] textarea {
+  font-family: inherit;
+}
+
 body {
   margin: 0;
   padding: 0;
