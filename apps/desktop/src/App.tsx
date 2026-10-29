@@ -8,6 +8,7 @@ import { CatalogView } from "./components/CatalogView";
 import { BulkImportModal } from "./components/BulkImportModal";
 import { PurchasingView } from "./components/PurchasingView";
 import { StockAuditView } from "./components/StockAuditView";
+import { CheckoutView } from "./components/CheckoutView";
 import { SystemStatusDto } from "./lib/contracts";
 import {
   ShieldCheck,
@@ -25,13 +26,14 @@ import {
   Package,
   Truck,
   ClipboardCheck,
+  ShoppingCart,
 } from "lucide-react";
 
 function AppContent() {
   const { t } = useTranslation();
   const { language, toggleLanguage } = useAppLanguage();
 
-  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "purchasing" | "audit" | "master" | "wizard">("catalog");
+  const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "audit" | "master" | "dashboard" | "wizard">("checkout");
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
@@ -77,6 +79,17 @@ function AppContent() {
 
         {/* Center Nav Tabs */}
         <nav className="hidden md:flex items-center gap-1 bg-slate-950/70 p-1 rounded-xl border border-slate-800/80">
+          <button
+            onClick={() => setActiveTab("checkout")}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
+              activeTab === "checkout"
+                ? "bg-emerald-600 text-white shadow-sm shadow-emerald-950"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            POS Terminal
+          </button>
           <button
             onClick={() => setActiveTab("catalog")}
             className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
@@ -182,7 +195,9 @@ function AppContent() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-6xl mx-auto w-full p-6">
+      <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6">
+        {activeTab === "checkout" && <CheckoutView />}
+
         {activeTab === "catalog" && (
           <CatalogView onOpenBulkImport={() => setIsBulkImportOpen(true)} />
         )}

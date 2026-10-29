@@ -1,4 +1,5 @@
 pub mod brand;
+pub mod cart;
 pub mod catalog;
 pub mod category;
 pub mod importer;
@@ -6,11 +7,13 @@ pub mod inventory;
 pub mod party;
 pub mod purchase;
 pub mod reconcile;
+pub mod sale;
 pub mod settings;
 pub mod stock_count;
 pub mod unit;
 
 pub use brand::{Brand, BrandRepo};
+pub use cart::{Cart, CartLine, CartRepo, ParkedCartSummary};
 pub use catalog::{CatalogRepo, CreatePackagingUnitParams, CreateProductParams, ProductSearchResult};
 pub use category::{Category, CategoryRepo};
 pub use importer::{CatalogImporter, ImportRow, ImportRowError, ImportSummary};
@@ -18,6 +21,7 @@ pub use inventory::{InventoryBalance, InventoryBalanceView, InventoryRepo, Recor
 pub use party::{CreatePartyParams, Party, PartyRepo};
 pub use purchase::{CreatePurchaseInput, CreatePurchaseLineInput, PurchaseInvoice, PurchaseInvoiceLine, PurchaseRepo};
 pub use reconcile::{RebuildSummary, ReconcileEngine};
+pub use sale::{CompletedSale, PaymentTenderInput, PostSaleLineInput, PostSaleRequest, SaleLineDto, SaleRepo};
 pub use settings::{BusinessSettings, SettingsRepo};
 pub use stock_count::{RecordCountItemInput, StockCountLine, StockCountRepo, StockCountSession};
 pub use unit::{Unit, UnitRepo};

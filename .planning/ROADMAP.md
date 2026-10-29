@@ -115,10 +115,10 @@ Plans:
 **Plans**: 4 plans (06-01 to 06-04)
 
 Plans:
-- [ ] 06-01: High-speed POS cart state machine with continuous scanner focus, hotkeys, and price tier resolution.
-- [ ] 06-02: Parked cart (Hold/Recall) manager with persistent disk state across sudden application restarts.
-- [ ] 06-03: Split-tender payment engine (Cash, Card, Khata Credit, Bank Transfer) with atomic `BEGIN IMMEDIATE` sale posting.
-- [ ] 06-04: Fullscreen POS cashier interface in React with high-speed keyboard shortcuts and touch-friendly numpad.
+- [x] 06-01: High-speed POS cart state machine with continuous scanner focus, hotkeys, and price tier resolution.
+- [x] 06-02: Parked cart (Hold/Recall) manager with persistent disk state across sudden application restarts.
+- [x] 06-03: Split-tender payment engine (Cash, Card, Khata Credit, Bank Transfer) with atomic `BEGIN IMMEDIATE` sale posting.
+- [x] 06-04: Fullscreen POS cashier interface in React with high-speed keyboard shortcuts and touch-friendly numpad.
 
 ### Phase 7: Hardware Printing, Receipts & Cash Sessions
 **Goal**: Integrate ESC/POS thermal printers (58mm/80mm) with 1-bit Urdu raster bitmap printing, cash drawer kick, returns, and cashier cash shift management.  
