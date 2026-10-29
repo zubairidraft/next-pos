@@ -8,7 +8,7 @@ Next POS is delivered across 12 focused implementation phases (corresponding to 
 
 - [x] **Phase 1: Foundation, Data Engine & Architecture** - Monorepo setup, Tauri 2 shell, pos-core crate, SQLCipher encrypted database, migrations, and Paisa/Qty precision arithmetic types.
 - [x] **Phase 2: Security, Master Data & Urdu Localization** - User accounts, RBAC, cashier PIN quick-switching, system settings, first-run wizard, and complete English/Urdu RTL interface.
-- [ ] **Phase 3: Catalog & High-Volume Data Import** - Products, variants, unit conversions, multi-tier price lists, barcode management, and high-performance Excel/CSV importer for 50,000+ items.
+- [x] **Phase 3: Catalog & High-Volume Data Import** - Products, variants, unit conversions, multi-tier price lists, barcode management, and high-performance Excel/CSV importer for 50,000+ items.
 - [ ] **Phase 4: Purchasing, Costing & Stock Ledger** - Immutable stock movement ledger, vendor invoices, landed cost distribution, and weighted-average costing with Block on negative stock.
 - [ ] **Phase 5: Stock Audits, Discrepancies & Label Designer** - Purchase returns, stock adjustments, physical count sessions, inventory cache rebuild tool, and thermal barcode label designer.
 - [ ] **Phase 6: POS Checkout & Transaction Engine** - High-speed keyboard/scanner-first checkout, parked carts (hold/recall), split-tender payments, and atomic `BEGIN IMMEDIATE` sale posting.
@@ -67,10 +67,10 @@ Plans:
 **Plans**: 4 plans (03-01 to 03-04)
 
 Plans:
-- [ ] 03-01: Core catalog domain models, SQLite index migrations, packaging unit conversions, and sub-100ms multi-script search.
-- [ ] 03-02: High-speed streaming CSV/Excel catalog importer with batch chunking and 50,000-item benchmark (< 30s).
-- [ ] 03-03: Desktop catalog management table, scanner-first search, and bilingual product creation modal.
-- [ ] 03-04: Bulk importer modal with template download, live progress bar, validation error summary, and shell integration.
+- [x] 03-01: Core catalog domain models, SQLite index migrations, packaging unit conversions, and sub-100ms multi-script search.
+- [x] 03-02: High-speed streaming CSV/Excel catalog importer with batch chunking and 50,000-item benchmark (< 30s).
+- [x] 03-03: Desktop catalog management table, scanner-first search, and bilingual product creation modal.
+- [x] 03-04: Bulk importer modal with template download, live progress bar, validation error summary, and shell integration.
 
 ### Phase 4: Purchasing, Costing & Stock Ledger
 **Goal**: Implement the immutable stock movement ledger, purchase invoice entry, landed cost allocation, and weighted-average costing with strict negative stock blocking.  
@@ -161,4 +161,5 @@ Plans:
   2. Signed production Windows installer (.msi / .exe) ready for dealer distribution.
   3. At least 4 out of 5 pilot shop owners express willingness to pay full price for annual renewal.
 **Plans**: TBD
+
 

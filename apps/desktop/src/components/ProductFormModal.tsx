@@ -1,0 +1,372 @@
+import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { X, Sparkles, Box, DollarSign, Barcode as BarcodeIcon, Layers } from "lucide-react";
+
+export interface ProductFormData {
+  id?: string;
+  sku: string;
+  name: string;
+  nameUr?: string;
+  categoryId?: string;
+  brandId?: string;
+  baseUnit: string;
+  barcode?: string;
+  retailPrice: number;
+  wholesalePrice?: number;
+  hasPackagingUnit: boolean;
+  packUnit?: string;
+  packFactor?: number;
+  packBarcode?: string;
+  packRetailPrice?: number;
+}
+
+interface ProductFormModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (product: ProductFormData) => void;
+  initialData?: ProductFormData | null;
+  categories: { id: string; name: string }[];
+  brands: { id: string; name: string }[];
+  units: { id: string; name: string; code: string }[];
+}
+
+export const ProductFormModal: React.FC<ProductFormModalProps> = ({
+  isOpen,
+  onClose,
+  onSave,
+  initialData,
+  categories,
+  brands,
+  units,
+}) => {
+  const { t } = useTranslation();
+
+  const [formData, setFormData] = useState<ProductFormData>(() => {
+    if (initialData) return initialData;
+    return {
+      sku: "",
+      name: "",
+      nameUr: "",
+      categoryId: categories[0]?.id || "",
+      brandId: brands[0]?.id || "",
+      baseUnit: units[0]?.code || "pc",
+      barcode: "",
+      retailPrice: 0,
+      wholesalePrice: 0,
+      hasPackagingUnit: false,
+      packUnit: "carton",
+      packFactor: 24,
+      packBarcode: "",
+      packRetailPrice: 0,
+    };
+  });
+
+  if (!isOpen) return null;
+
+  const generateBarcode = () => {
+    const randomSuffix = Math.floor(100000000 + Math.random() * 900000000);
+    setFormData((prev) => ({
+      ...prev,
+      barcode: `8964${randomSuffix}`,
+    }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.sku.trim() || !formData.name.trim() || formData.retailPrice <= 0) {
+      alert("Please enter a valid SKU, product name, and retail price.");
+      return;
+    }
+    onSave(formData);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-8">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/50">
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <Box className="w-5 h-5 text-emerald-400" />
+            {initialData ? t("catalog.modal_edit_title") : t("catalog.modal_add_title")}
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {/* Row 1: SKU & Barcode */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                {t("catalog.sku_label")} *
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.sku}
+                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
+                placeholder="e.g. SHAN-BIR-50G"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-300">
+                  {t("catalog.barcode_label")}
+                </label>
+                <button
+                  type="button"
+                  onClick={generateBarcode}
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-medium"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  {t("catalog.generate_barcode")}
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={formData.barcode || ""}
+                  onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                  placeholder="e.g. 8964000101112"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono pl-9"
+                />
+                <BarcodeIcon className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: Names (English & Urdu Nastaliq) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                {t("catalog.name_en_label")} *
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="e.g. Shan Bombay Biryani Masala 50g"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                {t("catalog.name_ur_label")}
+              </label>
+              <input
+                type="text"
+                dir="rtl"
+                value={formData.nameUr || ""}
+                onChange={(e) => setFormData({ ...formData, nameUr: e.target.value })}
+                placeholder="شان بمبئی بریانی مصالحہ ۵۰ گرام"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-nastaliq"
+              />
+            </div>
+          </div>
+
+          {/* Row 3: Category, Brand & Base Unit */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                {t("catalog.category_label")}
+              </label>
+              <select
+                value={formData.categoryId}
+                onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                {t("catalog.brand_label")}
+              </label>
+              <select
+                value={formData.brandId}
+                onChange={(e) => setFormData({ ...formData, brandId: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+              >
+                {brands.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                {t("catalog.base_unit_label")}
+              </label>
+              <select
+                value={formData.baseUnit}
+                onChange={(e) => setFormData({ ...formData, baseUnit: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+              >
+                {units.map((u) => (
+                  <option key={u.id} value={u.code}>
+                    {u.name} ({u.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Row 4: Multi-tier Prices */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                {t("catalog.retail_price_label")} *
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.5"
+                  required
+                  min="0.01"
+                  value={formData.retailPrice || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, retailPrice: parseFloat(e.target.value) || 0 })
+                  }
+                  placeholder="140.00"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 pl-8 font-mono"
+                />
+                <DollarSign className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                {t("catalog.wholesale_price_label")}
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.5"
+                  value={formData.wholesalePrice || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, wholesalePrice: parseFloat(e.target.value) || 0 })
+                  }
+                  placeholder="125.00"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 pl-8 font-mono"
+                />
+                <DollarSign className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+              </div>
+            </div>
+          </div>
+
+          {/* Row 5: Packaging Unit Option */}
+          <div className="pt-3 border-t border-slate-800/80">
+            <label className="flex items-center gap-2 cursor-pointer mb-3">
+              <input
+                type="checkbox"
+                checked={formData.hasPackagingUnit}
+                onChange={(e) =>
+                  setFormData({ ...formData, hasPackagingUnit: e.target.checked })
+                }
+                className="w-4 h-4 rounded border-slate-700 text-emerald-500 focus:ring-0 focus:ring-offset-0 bg-slate-950"
+              />
+              <span className="text-xs font-medium text-slate-200 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                {t("catalog.has_packaging_unit")}
+              </span>
+            </label>
+
+            {formData.hasPackagingUnit && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                    {t("catalog.pack_unit_label")}
+                  </label>
+                  <select
+                    value={formData.packUnit}
+                    onChange={(e) => setFormData({ ...formData, packUnit: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"
+                  >
+                    <option value="carton">Carton (کارٹن)</option>
+                    <option value="box">Box (ڈبہ)</option>
+                    <option value="pack">Pack (پیکٹ)</option>
+                    <option value="dozen">Dozen (درجن)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                    {t("catalog.pack_factor_label")}
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={formData.packFactor || 24}
+                    onChange={(e) =>
+                      setFormData({ ...formData, packFactor: parseInt(e.target.value) || 1 })
+                    }
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                    {t("catalog.pack_barcode_label")}
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.packBarcode || ""}
+                    onChange={(e) =>
+                      setFormData({ ...formData, packBarcode: e.target.value })
+                    }
+                    placeholder="Outer Carton Barcode"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                    {t("catalog.pack_price_label")}
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={formData.packRetailPrice || ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        packRetailPrice: parseFloat(e.target.value) || 0,
+                      })
+                    }
+                    placeholder="e.g. 3200"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white font-mono"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Form Actions */}
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 transition"
+            >
+              {t("catalog.cancel")}
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-950 transition"
+            >
+              {t("catalog.save_product")}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
