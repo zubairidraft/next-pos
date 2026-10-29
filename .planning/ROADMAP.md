@@ -9,7 +9,7 @@ Next POS is delivered across 12 focused implementation phases (corresponding to 
 - [x] **Phase 1: Foundation, Data Engine & Architecture** - Monorepo setup, Tauri 2 shell, pos-core crate, SQLCipher encrypted database, migrations, and Paisa/Qty precision arithmetic types.
 - [x] **Phase 2: Security, Master Data & Urdu Localization** - User accounts, RBAC, cashier PIN quick-switching, system settings, first-run wizard, and complete English/Urdu RTL interface.
 - [x] **Phase 3: Catalog & High-Volume Data Import** - Products, variants, unit conversions, multi-tier price lists, barcode management, and high-performance Excel/CSV importer for 50,000+ items.
-- [ ] **Phase 4: Purchasing, Costing & Stock Ledger** - Immutable stock movement ledger, vendor invoices, landed cost distribution, and weighted-average costing with Block on negative stock.
+- [x] **Phase 4: Purchasing, Costing & Stock Ledger** - Immutable stock movement ledger, vendor invoices, landed cost distribution, and weighted-average costing with Block on negative stock.
 - [ ] **Phase 5: Stock Audits, Discrepancies & Label Designer** - Purchase returns, stock adjustments, physical count sessions, inventory cache rebuild tool, and thermal barcode label designer.
 - [ ] **Phase 6: POS Checkout & Transaction Engine** - High-speed keyboard/scanner-first checkout, parked carts (hold/recall), split-tender payments, and atomic `BEGIN IMMEDIATE` sale posting.
 - [ ] **Phase 7: Hardware Printing, Receipts & Cash Sessions** - ESC/POS thermal printing with Urdu 1-bit raster graphics, cash drawer triggering, sale returns, cashier cash sessions, and daily Z-reports.
@@ -83,10 +83,10 @@ Plans:
 **Plans**: 4 plans (04-01 to 04-04)
 
 Plans:
-- [ ] 04-01: Immutable stock movement ledger, balance cache updates, and strict negative stock enforcement (`Block`).
-- [ ] 04-02: Purchase order and receiving entry with multi-tier landed cost distribution in `Paisa(i64)`.
-- [ ] 04-03: Moving-weighted-average cost recalculation engine with audit trail.
-- [ ] 04-04: Purchasing desktop UI with supplier selection, batch line entry, landed cost wizard, and stock ledger inspector.
+- [x] 04-01: Immutable stock movement ledger, balance cache updates, and strict negative stock enforcement (`Block`).
+- [x] 04-02: Purchase order and receiving entry with multi-tier landed cost distribution in `Paisa(i64)`.
+- [x] 04-03: Moving-weighted-average cost recalculation engine with audit trail.
+- [x] 04-04: Purchasing desktop UI with supplier selection, batch line entry, landed cost wizard, and stock ledger inspector.
 
 ### Phase 5: Stock Audits, Discrepancies & Label Designer
 **Goal**: Provide purchase returns, inventory adjustments, stock count sessions with variance approvals, cache rebuilding, and thermal barcode label printing.  
