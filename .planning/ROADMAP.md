@@ -10,7 +10,7 @@ Next POS is delivered across 12 focused implementation phases (corresponding to 
 - [x] **Phase 2: Security, Master Data & Urdu Localization** - User accounts, RBAC, cashier PIN quick-switching, system settings, first-run wizard, and complete English/Urdu RTL interface.
 - [x] **Phase 3: Catalog & High-Volume Data Import** - Products, variants, unit conversions, multi-tier price lists, barcode management, and high-performance Excel/CSV importer for 50,000+ items.
 - [x] **Phase 4: Purchasing, Costing & Stock Ledger** - Immutable stock movement ledger, vendor invoices, landed cost distribution, and weighted-average costing with Block on negative stock.
-- [ ] **Phase 5: Stock Audits, Discrepancies & Label Designer** - Purchase returns, stock adjustments, physical count sessions, inventory cache rebuild tool, and thermal barcode label designer.
+- [x] **Phase 5: Stock Audits, Discrepancies & Label Designer** - Purchase returns, stock adjustments, physical count sessions, inventory cache rebuild tool, and thermal barcode label designer.
 - [ ] **Phase 6: POS Checkout & Transaction Engine** - High-speed keyboard/scanner-first checkout, parked carts (hold/recall), split-tender payments, and atomic `BEGIN IMMEDIATE` sale posting.
 - [ ] **Phase 7: Hardware Printing, Receipts & Cash Sessions** - ESC/POS thermal printing with Urdu 1-bit raster graphics, cash drawer triggering, sale returns, cashier cash sessions, and daily Z-reports.
 - [ ] **Phase 8: Khata (Customer/Vendor Credit) & WhatsApp Sharing** - Customer and vendor credit ledgers, automated FIFO payment allocation, statement generation in Urdu/English, and WhatsApp sharing.
@@ -99,10 +99,10 @@ Plans:
 **Plans**: 4 plans (05-01 to 05-04)
 
 Plans:
-- [ ] 05-01: Purchase returns to vendors with automated negative stock prevention and cost recovery.
-- [ ] 05-02: Stock adjustments with reason codes and inventory cache rebuild verification engine.
-- [ ] 05-03: Physical stock count sessions, blind auditing, and variance approval workflow.
-- [ ] 05-04: Thermal barcode label designer (38x25mm and 50x30mm) with bilingual typography and batch print queue.
+- [x] 05-01: Purchase returns to vendors with automated negative stock prevention and cost recovery.
+- [x] 05-02: Stock adjustments with reason codes and inventory cache rebuild verification engine.
+- [x] 05-03: Physical stock count sessions, blind auditing, and variance approval workflow.
+- [x] 05-04: Thermal barcode label designer (38x25mm and 50x30mm) with bilingual typography and batch print queue.
 
 ### Phase 6: POS Checkout & Transaction Engine
 **Goal**: Build the cashier checkout screen with continuous scanner focus, parked carts, price tiers, split tenders, and atomic `BEGIN IMMEDIATE` sale posting.  

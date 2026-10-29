@@ -181,5 +181,41 @@
     "vendor_phone": "Phone",
     "vendor_ntn": "NTN",
     "outstanding_balance": "Khata Balance"
+  },
+  "audit": {
+    "title": "Physical Stock Audits & Cache Rebuild",
+    "subtitle": "Conduct physical shelf audits, identify inventory variances, and rebuild materialized balance caches",
+    "btn_new_audit": "+ Start Audit Session",
+    "btn_rebuild_cache": "Rebuild Balance Cache",
+    "rebuilding": "Rebuilding Cache...",
+    "rebuild_success": "Cache rebuilt successfully. Parity verified with zero ledger drift.",
+    "scan_placeholder": "Scan barcode or enter SKU...",
+    "tab_active_session": "Active Audit Session",
+    "tab_history": "Audit History",
+    "expected_qty": "System Expected",
+    "counted_qty": "Physical Count",
+    "variance_qty": "Variance Qty",
+    "variance_val": "Variance Value",
+    "surplus": "Surplus",
+    "shortage": "Shortage",
+    "balanced": "Balanced",
+    "finalize_btn": "Finalize & Post Discrepancy Adjustments",
+    "manager_pin_required": "Manager PIN Required",
+    "open_label_designer": "Barcode Label Designer"
+  },
+  "labels": {
+    "title": "Thermal Barcode Label Designer",
+    "subtitle": "Print adhesive barcode labels for thermal printers (38x25mm and 50x30mm) with TSPL command generation",
+    "size_38x25": "38 x 25 mm (Standard Shelf Sticker)",
+    "size_50x30": "50 x 30 mm (Supermarket / Apparel)",
+    "store_header": "Store Name",
+    "product_item": "Product Item",
+    "barcode_val": "Barcode Value",
+    "retail_price": "Retail Price (PKR)",
+    "copies": "Print Copies",
+    "show_urdu": "Include Urdu Nastaliq Name",
+    "show_price": "Include Price",
+    "test_print_btn": "Generate TSPL Command Stream",
+    "copied": "TSPL commands copied to clipboard!"
   }
 }

@@ -7,6 +7,7 @@ import { MasterDataView } from "./components/MasterDataView";
 import { CatalogView } from "./components/CatalogView";
 import { BulkImportModal } from "./components/BulkImportModal";
 import { PurchasingView } from "./components/PurchasingView";
+import { StockAuditView } from "./components/StockAuditView";
 import { SystemStatusDto } from "./lib/contracts";
 import {
   ShieldCheck,
@@ -23,13 +24,14 @@ import {
   Wand2,
   Package,
   Truck,
+  ClipboardCheck,
 } from "lucide-react";
 
 function AppContent() {
   const { t } = useTranslation();
   const { language, toggleLanguage } = useAppLanguage();
 
-  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "purchasing" | "master" | "wizard">("catalog");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "purchasing" | "audit" | "master" | "wizard">("catalog");
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
@@ -96,6 +98,17 @@ function AppContent() {
           >
             <Truck className="w-3.5 h-3.5" />
             {t("nav.inventory")}
+          </button>
+          <button
+            onClick={() => setActiveTab("audit")}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === "audit"
+                ? "bg-slate-800 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <ClipboardCheck className="w-3.5 h-3.5" />
+            {t("audit.tab_active_session").split("(")[0].trim()}
           </button>
           <button
             onClick={() => setActiveTab("master")}
@@ -175,6 +188,8 @@ function AppContent() {
         )}
 
         {activeTab === "purchasing" && <PurchasingView />}
+
+        {activeTab === "audit" && <StockAuditView />}
 
         {activeTab === "master" && <MasterDataView />}
 
