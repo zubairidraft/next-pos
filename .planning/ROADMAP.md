@@ -131,10 +131,10 @@ Plans:
 **Plans**: 4 plans (07-01 to 07-04)
 
 Plans:
-- [ ] 07-01: ESC/POS thermal receipt engine with 1-bit monochrome Urdu Nastaliq raster bitmaps (58mm/80mm).
-- [ ] 07-02: Hardware kick pulse for cash drawers (RJ11 solenoid pulse) and manual drawer control.
-- [ ] 07-03: Cashier shift sessions with opening float, cash drops/payouts, and verified daily Z-Report generation.
-- [ ] 07-04: POS receipt preview, sales returns workflow, and cashier shift reconciliation UI.
+- [x] 07-01: ESC/POS thermal receipt engine with 1-bit monochrome Urdu Nastaliq raster bitmaps (58mm/80mm).
+- [x] 07-02: Hardware kick pulse for cash drawers (RJ11 solenoid pulse) and manual drawer control.
+- [x] 07-03: Cashier shift sessions with opening float, cash drops/payouts, and verified daily Z-Report generation.
+- [x] 07-04: POS receipt preview, sales returns workflow, and cashier shift reconciliation UI.
 
 ### Phase 8: Khata (Customer/Vendor Credit) & WhatsApp Sharing
 **Goal**: Deliver native Pakistani Khata ledger management, credit limit validation, payment allocations, and WhatsApp statement distribution.  

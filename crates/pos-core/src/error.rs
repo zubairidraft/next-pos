@@ -22,4 +22,10 @@ pub enum PosError {
     },
 }
 
+impl From<rusqlite::Error> for PosError {
+    fn from(err: rusqlite::Error) -> Self {
+        PosError::Db(err.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, PosError>;

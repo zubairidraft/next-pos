@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 import { CartLineItem, ParkedCartItem, PaymentTender, SaleSummary } from "../lib/contracts";
 import { PaymentModal } from "./PaymentModal";
 import { ParkedCartsModal } from "./ParkedCartsModal";
+import { PrinterSettingsModal } from "./PrinterSettingsModal";
+import { ShiftCloseModal } from "./ShiftCloseModal";
+import { SaleReturnsModal } from "./SaleReturnsModal";
 import {
   Barcode,
   Plus,
@@ -13,6 +16,8 @@ import {
   User,
   ShoppingBag,
   RotateCcw,
+  Printer,
+  Receipt,
 } from "lucide-react";
 
 // Mock catalog item for immediate scanning & testing
@@ -129,6 +134,9 @@ export const CheckoutView: React.FC = () => {
   // Modals
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isParkedModalOpen, setIsParkedModalOpen] = useState(false);
+  const [isPrinterOpen, setIsPrinterOpen] = useState(false);
+  const [isShiftOpen, setIsShiftOpen] = useState(false);
+  const [isReturnOpen, setIsReturnOpen] = useState(false);
   const [parkedCarts, setParkedCarts] = useState<ParkedCartItem[]>([
     {
       id: "park-01",
@@ -153,7 +161,14 @@ export const CheckoutView: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // If modal is active, let modal handle it
-      if (isPaymentOpen || isParkedModalOpen) return;
+      if (
+        isPaymentOpen ||
+        isParkedModalOpen ||
+        isPrinterOpen ||
+        isShiftOpen ||
+        isReturnOpen
+      )
+        return;
 
       if (e.key === "F2") {
         e.preventDefault();
@@ -182,7 +197,14 @@ export const CheckoutView: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cartLines, isPaymentOpen, isParkedModalOpen]);
+  }, [
+    cartLines,
+    isPaymentOpen,
+    isParkedModalOpen,
+    isPrinterOpen,
+    isShiftOpen,
+    isReturnOpen,
+  ]);
 
   const formatPkr = (paisa: number) => `PKR ${(paisa / 100).toFixed(2)}`;
 
@@ -425,6 +447,36 @@ export const CheckoutView: React.FC = () => {
                   Haji Muhammad Aslam (Khata #102)
                 </option>
               </select>
+            </div>
+
+            {/* Quick Hardware & Management Buttons */}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIsReturnOpen(true)}
+                className="p-2 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl hover:bg-slate-800 text-slate-300 transition"
+                title="Process Sale Return / ریٹرن"
+              >
+                <RotateCcw className="w-4 h-4 text-rose-400" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsShiftOpen(true)}
+                className="p-2 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl hover:bg-slate-800 text-slate-300 transition"
+                title="Shift Close & Z-Report / روزانہ رپورٹ"
+              >
+                <Receipt className="w-4 h-4 text-amber-400" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsPrinterOpen(true)}
+                className="p-2 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl hover:bg-slate-800 text-slate-300 transition"
+                title="Printer & Drawer Hardware / پرنٹر سیٹنگز"
+              >
+                <Printer className="w-4 h-4 text-indigo-400" />
+              </button>
             </div>
           </div>
         </div>
@@ -671,6 +723,39 @@ export const CheckoutView: React.FC = () => {
         parkedCarts={parkedCarts}
         onRecall={handleRecallCart}
         onDiscard={handleDiscardParkedCart}
+      />
+
+      {/* Printer & Hardware Diagnostics Modal */}
+      <PrinterSettingsModal
+        isOpen={isPrinterOpen}
+        onClose={() => setIsPrinterOpen(false)}
+      />
+
+      {/* Cashier Shift Close & Z-Report Modal */}
+      <ShiftCloseModal
+        isOpen={isShiftOpen}
+        onClose={() => setIsShiftOpen(false)}
+        openingFloatPaisa={100000} // PKR 1,000 float
+        expectedCashPaisa={250000} // PKR 2,500 expected
+        cashierName="Tariq Mahmood"
+        onShiftClosed={(countedPaisa) => {
+          setToastMessage(
+            `Shift closed! Counted: PKR ${(countedPaisa / 100).toFixed(2)}. Z-Report printed.`
+          );
+          setTimeout(() => setToastMessage(null), 5000);
+        }}
+      />
+
+      {/* Sale Returns & Refund Modal */}
+      <SaleReturnsModal
+        isOpen={isReturnOpen}
+        onClose={() => setIsReturnOpen(false)}
+        onReturnProcessed={(docNo, refundPaisa) => {
+          setToastMessage(
+            `Return posted! Credit Note: ${docNo} (Refund: PKR ${(refundPaisa / 100).toFixed(2)})`
+          );
+          setTimeout(() => setToastMessage(null), 5000);
+        }}
       />
     </div>
   );

@@ -264,5 +264,53 @@
     "cancel": "Cancel",
     "quick_items": "Quick Items",
     "out_of_stock_warning": "Warning: Stock balance is 0. Negative stock is strictly blocked!"
+  },
+  "printer": {
+    "title": "Thermal Receipt Printer & Hardware",
+    "subtitle": "Configure 58mm/80mm ESC/POS thermal printers, 1-bit Urdu raster graphics, and RJ11 cash drawer solenoid kick pulse",
+    "roll_width": "Roll Paper Width",
+    "width_58mm": "58 mm (Compact 32-column Roll)",
+    "width_80mm": "80 mm (Wide 48-column Supermarket Roll)",
+    "test_print": "Print Test Receipt (ESC/POS)",
+    "kick_drawer": "Kick Cash Drawer (RJ11)",
+    "cut_paper": "Cut Receipt Paper",
+    "urdu_raster": "1-Bit Monochrome Urdu Raster Graphic Rendering",
+    "success_drawer": "Cash drawer kick pulse (ESC p 0 25 250) sent successfully!",
+    "success_test": "ESC/POS test receipt stream generated successfully!",
+    "copied_bytes": "ESC/POS byte stream copied to clipboard!"
+  },
+  "shift": {
+    "title": "Cashier Shift & Z-Report Balancing",
+    "subtitle": "Track opening float, sales tenders, petty cash expenses, and perform daily physical cash balancing",
+    "active_shift": "Active Shift Session",
+    "opening_float": "Opening Float (PKR)",
+    "expected_cash": "System Expected Cash",
+    "counted_cash": "Physical Counted Cash",
+    "variance": "Cash Variance",
+    "denomination_title": "Pakistani Rupee (PKR) Note Counter",
+    "close_shift_btn": "Close Shift & Print Z-Report",
+    "petty_drop_btn": "Record Petty Cash Payout",
+    "z_report_title": "Daily Shift Z-Report Summary",
+    "gross_sales": "Gross Sales",
+    "discounts": "Discounts",
+    "net_sales": "Net Sales",
+    "cash_drops": "Petty Cash Drops",
+    "balanced": "Balanced (0.00 Discrepancy)",
+    "surplus": "Cash Surplus",
+    "shortage": "Cash Shortage",
+    "notes_count": "Notes Count"
+  },
+  "returns": {
+    "title": "Sales Returns & Refund Engine",
+    "subtitle": "Return customer goods against original invoice, restore inventory ledger, and refund via cash or Khata credit",
+    "find_invoice": "Find Original Invoice #",
+    "invoice_placeholder": "e.g. INV-202610-0042",
+    "return_qty": "Return Qty",
+    "refund_amount": "Refund Amount",
+    "restock_sellable": "Sellable (Restock to Shelf)",
+    "restock_damaged": "Damaged / Waste (Write-off)",
+    "refund_method": "Refund Method",
+    "post_return_btn": "Process Return & Issue Credit Note",
+    "return_success": "Return completed successfully! Credit Note: "
   }
 }
