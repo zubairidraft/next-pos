@@ -140,6 +140,12 @@ export interface FinancialSummary {
   returns_paisa: number;
 }
 
+export interface CloudSyncResult {
+  success: boolean;
+  synced_count: number;
+  message: string;
+}
+
 // Fallback in case frontend is launched in a pure browser tab
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -183,4 +189,6 @@ export const api = {
     callTauri<string>("export_backup", { password, destinationFile }),
   restoreBackup: (password: string, backupFile: string) =>
     callTauri<string>("restore_backup", { password, backupFile }),
+
+  syncToCloud: () => callTauri<CloudSyncResult>("sync_to_cloud"),
 };

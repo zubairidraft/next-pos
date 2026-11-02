@@ -11,7 +11,10 @@ import {
   CheckCircle,
   History,
   FileArchive,
+  Cloud,
+  CheckCircle2,
 } from "lucide-react";
+import { api } from "../lib/api";
 
 interface SnapshotItem {
   filename: string;
@@ -55,6 +58,22 @@ export function BackupView() {
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [backupPassword, setBackupPassword] = useState("");
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
+
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [cloudSyncMsg, setCloudSyncMsg] = useState<string | null>(null);
+
+  const handleSyncToCloud = async () => {
+    setIsSyncingCloud(true);
+    setCloudSyncMsg(null);
+    try {
+      const res = await api.syncToCloud();
+      setCloudSyncMsg(res.message);
+    } catch (err: any) {
+      setCloudSyncMsg("Sync failed: " + (err?.message || String(err)));
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
 
   const handleCreateSnapshot = () => {
     const now = new Date();
@@ -135,6 +154,44 @@ export function BackupView() {
             Restore Database
           </button>
         </div>
+      </div>
+
+      {/* Supabase Multi-Store Cloud Sync Banner */}
+      <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-2xl p-5 shadow-lg">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30">
+              <Cloud className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-white">Supabase PostgreSQL Cloud Gateway</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  Active (ap-south-1)
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Multi-Store Event Log • Outbox Pattern • Sub-5ms Local Billing with Zero Lag
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSyncToCloud}
+            disabled={isSyncingCloud}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-lg shadow-emerald-950 transition active:scale-95 shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? "animate-spin" : ""}`} />
+            <span>{isSyncingCloud ? "Syncing..." : "Sync to Cloud Now (کلاؤڈ سنک کریں)"}</span>
+          </button>
+        </div>
+
+        {cloudSyncMsg && (
+          <div className="mt-3 p-2.5 rounded-xl bg-slate-950/60 border border-emerald-500/30 text-xs text-emerald-300 flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{cloudSyncMsg}</span>
+          </div>
+        )}
       </div>
 
       {/* Snapshot Strategy & Health Cards */}

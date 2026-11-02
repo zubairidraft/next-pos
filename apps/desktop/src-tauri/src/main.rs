@@ -417,6 +417,87 @@ fn restore_backup(
     Ok(format!("Restored successfully! Safety copy: {:?}", report.safety_copy_path))
 }
 
+#[derive(Serialize)]
+pub struct CloudSyncResult {
+    pub success: bool,
+    pub synced_count: i64,
+    pub message: String,
+}
+
+#[tauri::command]
+async fn sync_to_cloud(state: State<'_, AppState>) -> Result<CloudSyncResult, String> {
+    let (shop_id, shop_name, unsynced_events) = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let shop_name = SettingsRepo::get(&conn).map(|s| s.name).unwrap_or_else(|_| "Al-Rehman General Store".into());
+        let shop_id = pos_core::licensing::HardwareFingerprint::get_machine_id();
+
+        let mut stmt = conn.prepare(
+            "SELECT event_id, event_type, payload_json, occurred_at FROM sync_outbox WHERE synced_at IS NULL ORDER BY occurred_at ASC LIMIT 50"
+        ).map_err(|e| e.to_string())?;
+
+        let events = stmt.query_map([], |r| {
+            let event_id: String = r.get(0)?;
+            let event_type: String = r.get(1)?;
+            let payload_str: String = r.get(2)?;
+            let occurred_at: String = r.get(3)?;
+            let payload: serde_json::Value = serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::Null);
+            Ok(serde_json::json!({
+                "event_id": event_id,
+                "event_type": event_type,
+                "payload": payload,
+                "occurred_at": occurred_at
+            }))
+        }).map_err(|e| e.to_string())?
+        .collect::<std::result::Result<Vec<serde_json::Value>, _>>()
+        .map_err(|e| e.to_string())?;
+
+        (shop_id, shop_name, events)
+    };
+
+    if unsynced_events.is_empty() {
+        return Ok(CloudSyncResult {
+            success: true,
+            synced_count: 0,
+            message: "No pending events. All transactions are up to date on Supabase!".into(),
+        });
+    }
+
+    let count = unsynced_events.len();
+    let client = reqwest::Client::new();
+    let payload = serde_json::json!({
+        "p_shop_id": shop_id,
+        "p_shop_name": shop_name,
+        "p_events": unsynced_events
+    });
+
+    let res = client.post("https://gdmsdcbiewgpqkuqlpfc.supabase.co/rest/v1/rpc/sync_shop_events")
+        .header("apikey", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkbXNkY2JpZXdncHFrdXFscGZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM1OTk4ODUsImV4cCI6MjEwOTE3NTg4NX0.0dubMeBrXpgowmRXXKVx8988LfcAQOKWAvwucQja2jc")
+        .header("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkbXNkY2JpZXdncHFrdXFscGZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM1OTk4ODUsImV4cCI6MjEwOTE3NTg4NX0.0dubMeBrXpgowmRXXKVx8988LfcAQOKWAvwucQja2jc")
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach Supabase Cloud: {}", e))?;
+
+    if !res.status().is_success() {
+        let err_text = res.text().await.unwrap_or_default();
+        return Err(format!("Supabase sync rejected: {}", err_text));
+    }
+
+    // Mark events as synced in local DB
+    {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute("UPDATE sync_outbox SET synced_at = ?1 WHERE synced_at IS NULL", [&now]);
+    }
+
+    Ok(CloudSyncResult {
+        success: true,
+        synced_count: count as i64,
+        message: format!("Successfully synced {} events to Supabase Cloud!", count),
+    })
+}
+
 fn main() {
     println!(
         "Next POS Desktop Shell - initializing with pos-core v{}",
@@ -456,7 +537,8 @@ fn main() {
             get_khata_statement,
             get_reports_summary,
             export_backup,
-            restore_backup
+            restore_backup,
+            sync_to_cloud
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

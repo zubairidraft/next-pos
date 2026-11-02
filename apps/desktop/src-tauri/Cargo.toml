@@ -12,6 +12,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 chrono.workspace = true
 rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl", "chrono"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

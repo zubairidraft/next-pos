@@ -286,6 +286,20 @@ impl ReturnRepo {
             )),
         )?;
 
+        // Cloud Sync Outbox: record refund event for multi-store synchronization
+        let outbox_payload = serde_json::json!({
+            "id": return_id,
+            "doc_no": doc_no,
+            "original_sale_id": req.original_sale_id,
+            "refund_paisa": total_refund_paisa,
+            "refund_method": req.refund_method,
+        }).to_string();
+
+        let _ = tx.execute(
+            "INSERT INTO sync_outbox (event_id, event_type, payload_json, occurred_at) VALUES (?1, 'sale_refunded', ?2, ?3)",
+            params![Ulid::new().to_string(), outbox_payload, now],
+        );
+
         tx.commit()
             .map_err(|e| PosError::Db(format!("Failed to commit return transaction: {}", e)))?;
 

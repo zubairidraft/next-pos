@@ -460,6 +460,22 @@ impl SaleRepo {
             )),
         )?;
 
+        // Cloud Sync Outbox: record event for multi-store background synchronization
+        let outbox_payload = serde_json::json!({
+            "id": sale_id,
+            "doc_no": doc_no,
+            "subtotal_paisa": subtotal_paisa,
+            "discount_paisa": total_discount_paisa,
+            "tax_paisa": tax_paisa,
+            "grand_total_paisa": grand_total_paisa,
+            "customer_id": req.customer_id,
+        }).to_string();
+
+        let _ = tx.execute(
+            "INSERT INTO sync_outbox (event_id, event_type, payload_json, occurred_at) VALUES (?1, 'sale_posted', ?2, ?3)",
+            params![Ulid::new().to_string(), outbox_payload, now],
+        );
+
         tx.commit()
             .map_err(|e| PosError::Db(format!("Failed to commit sale transaction: {}", e)))?;
 
