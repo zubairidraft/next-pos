@@ -5,6 +5,20 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Next POS - Retail POS & Inventory</title>
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem("nextpos_theme");
+          if (saved === "light") {
+            document.documentElement.classList.add("light");
+            document.documentElement.classList.remove("dark");
+          } else {
+            document.documentElement.classList.add("dark");
+            document.documentElement.classList.remove("light");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body class="antialiased font-sans">
     <div id="root"></div>

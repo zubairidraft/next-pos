@@ -41,12 +41,21 @@ import {
   MoreHorizontal,
   Sun,
   Moon,
+  ChevronDown,
+  Tag,
+  Scale,
+  Users,
+  FileSpreadsheet,
 } from "lucide-react";
 
 function AppContent() {
   const { theme, toggleTheme } = useTheme();
 
   const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "khata" | "reports" | "backup" | "packs" | "license" | "audit" | "master" | "dashboard" | "wizard">("checkout");
+  const [masterSubTab, setMasterSubTab] = useState<"categories" | "brands" | "units">("categories");
+  const [purchasingSubTab, setPurchasingSubTab] = useState<"invoices" | "stock" | "vendors">("invoices");
+  const [isCatalogDropdownOpen, setIsCatalogDropdownOpen] = useState(false);
+  const [isInventoryDropdownOpen, setIsInventoryDropdownOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
@@ -111,7 +120,12 @@ function AppContent() {
         {/* Center Nav Tabs */}
         <nav className="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-950/70 p-1 rounded-xl border border-slate-300/80 dark:border-slate-800/80">
           <button
-            onClick={() => { setActiveTab("checkout"); setIsMoreMenuOpen(false); }}
+            onClick={() => {
+              setActiveTab("checkout");
+              setIsCatalogDropdownOpen(false);
+              setIsInventoryDropdownOpen(false);
+              setIsMoreMenuOpen(false);
+            }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
               activeTab === "checkout"
                 ? "bg-emerald-600 text-white shadow-sm shadow-emerald-950"
@@ -121,19 +135,82 @@ function AppContent() {
             <ShoppingCart className="w-3.5 h-3.5" />
             <span>POS</span>
           </button>
+
+          {/* Catalog Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setIsCatalogDropdownOpen((v) => !v);
+                setIsInventoryDropdownOpen(false);
+                setIsMoreMenuOpen(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                activeTab === "catalog" || activeTab === "master"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+              }`}
+            >
+              <Package className="w-3.5 h-3.5" />
+              <span>Catalog</span>
+              <ChevronDown className="w-3 h-3 opacity-70" />
+            </button>
+
+            {isCatalogDropdownOpen && (
+              <div className="absolute left-0 top-full mt-1.5 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
+                <button
+                  onClick={() => {
+                    setActiveTab("catalog");
+                    setIsCatalogDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
+                >
+                  <Package className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>All Products & Prices</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setMasterSubTab("categories");
+                    setActiveTab("master");
+                    setIsCatalogDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
+                >
+                  <FolderTree className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Categories Manager</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setMasterSubTab("brands");
+                    setActiveTab("master");
+                    setIsCatalogDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
+                >
+                  <Tag className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Brands Directory</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setMasterSubTab("units");
+                    setActiveTab("master");
+                    setIsCatalogDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
+                >
+                  <Scale className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Units of Measure (UOM)</span>
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
-            onClick={() => { setActiveTab("catalog"); setIsMoreMenuOpen(false); }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "catalog"
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <Package className="w-3.5 h-3.5" />
-            <span>Catalog</span>
-          </button>
-          <button
-            onClick={() => { setActiveTab("khata"); setIsMoreMenuOpen(false); }}
+            onClick={() => {
+              setActiveTab("khata");
+              setIsCatalogDropdownOpen(false);
+              setIsInventoryDropdownOpen(false);
+              setIsMoreMenuOpen(false);
+            }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
               activeTab === "khata"
                 ? "bg-emerald-600 text-white shadow-sm"
@@ -143,19 +220,82 @@ function AppContent() {
             <BookOpen className="w-3.5 h-3.5" />
             <span>Khata Ledger</span>
           </button>
+
+          {/* Inventory Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setIsInventoryDropdownOpen((v) => !v);
+                setIsCatalogDropdownOpen(false);
+                setIsMoreMenuOpen(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                activeTab === "purchasing" || activeTab === "audit"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+              }`}
+            >
+              <Truck className="w-3.5 h-3.5" />
+              <span>Inventory</span>
+              <ChevronDown className="w-3 h-3 opacity-70" />
+            </button>
+
+            {isInventoryDropdownOpen && (
+              <div className="absolute left-0 top-full mt-1.5 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
+                <button
+                  onClick={() => {
+                    setPurchasingSubTab("stock");
+                    setActiveTab("purchasing");
+                    setIsInventoryDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
+                >
+                  <Boxes className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Stock Balances & Valuation</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setPurchasingSubTab("invoices");
+                    setActiveTab("purchasing");
+                    setIsInventoryDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Purchase Invoices (Receiving)</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setPurchasingSubTab("vendors");
+                    setActiveTab("purchasing");
+                    setIsInventoryDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
+                >
+                  <Users className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Vendors & Distributors</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab("audit");
+                    setIsInventoryDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Stock Audit & Physical Count</span>
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
-            onClick={() => { setActiveTab("purchasing"); setIsMoreMenuOpen(false); }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "purchasing"
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <Truck className="w-3.5 h-3.5" />
-            <span>Inventory</span>
-          </button>
-          <button
-            onClick={() => { setActiveTab("reports"); setIsMoreMenuOpen(false); }}
+            onClick={() => {
+              setActiveTab("reports");
+              setIsCatalogDropdownOpen(false);
+              setIsInventoryDropdownOpen(false);
+              setIsMoreMenuOpen(false);
+            }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
               activeTab === "reports"
                 ? "bg-emerald-600 text-white shadow-sm"
@@ -292,7 +432,7 @@ function AppContent() {
           <CatalogView onOpenBulkImport={() => setIsBulkImportOpen(true)} />
         )}
 
-        {activeTab === "purchasing" && <PurchasingView />}
+        {activeTab === "purchasing" && <PurchasingView initialTab={purchasingSubTab} />}
 
         {activeTab === "khata" && <KhataView />}
 
@@ -306,7 +446,7 @@ function AppContent() {
 
         {activeTab === "audit" && <StockAuditView />}
 
-        {activeTab === "master" && <MasterDataView />}
+        {activeTab === "master" && <MasterDataView initialTab={masterSubTab} />}
 
         {activeTab === "wizard" && (
           <FirstRunWizard onComplete={() => setActiveTab("checkout")} />

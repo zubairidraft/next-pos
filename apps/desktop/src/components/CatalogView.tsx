@@ -286,34 +286,34 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden p-6 flex flex-col gap-6">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden p-6 flex flex-col gap-6">
       {/* Top Header & Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Package className="w-5 h-5 text-emerald-400" />
-            {t("catalog.title")}
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Package className="w-5 h-5 text-emerald-500" />
+            {t("catalog.title") || "Product Catalog"}
           </h2>
-          <p className="text-xs text-slate-400">{t("catalog.subtitle")}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{t("catalog.subtitle") || "Manage SKUs, retail & wholesale prices, multi-tier packaging, and barcodes."}</p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
             onClick={onOpenBulkImport}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            {t("catalog.bulk_import")}
+            <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+            {t("catalog.bulk_import") || "Bulk Import"}
           </button>
           <button
             onClick={() => {
               setEditingProduct(null);
               setIsFormModalOpen(true);
             }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-950 transition"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition"
           >
             <Plus className="w-4 h-4" />
-            {t("catalog.add_product")}
+            {t("catalog.add_product") || "+ Add Product"}
           </button>
         </div>
       </div>
@@ -326,19 +326,19 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("catalog.search_placeholder")}
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
+            placeholder={t("catalog.search_placeholder") || "Search products by name, SKU, or barcode (F3)..."}
+            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition shadow-xs"
           />
-          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
         </div>
 
         <div className="md:col-span-3">
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
+            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500 shadow-xs"
           >
-            <option value="all">{t("catalog.filter_all_categories")}</option>
+            <option value="all">{t("catalog.filter_all_categories") || "All Categories"}</option>
             {categories.map((c) => (
               <option key={c.id} value={c.name}>
                 {c.name}
@@ -351,9 +351,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
           <select
             value={selectedBrand}
             onChange={(e) => setSelectedBrand(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
+            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500 shadow-xs"
           >
-            <option value="all">{t("catalog.filter_all_brands")}</option>
+            <option value="all">{t("catalog.filter_all_brands") || "All Brands"}</option>
             {brands.map((b) => (
               <option key={b.id} value={b.name}>
                 {b.name}
@@ -364,80 +364,75 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
       </div>
 
       {/* Catalog Table */}
-      <div className="overflow-x-auto border border-slate-800 rounded-xl">
-        <table className="w-full text-left text-xs text-slate-300">
-          <thead className="bg-slate-950/80 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+      <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+        <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+          <thead className="bg-slate-100 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
             <tr>
-              <th className="py-3 px-4">{t("catalog.col_sku")}</th>
-              <th className="py-3 px-4">{t("catalog.col_product")}</th>
-              <th className="py-3 px-4">{t("catalog.col_category")}</th>
-              <th className="py-3 px-4">{t("catalog.col_brand")}</th>
-              <th className="py-3 px-4">{t("catalog.col_barcode")}</th>
-              <th className="py-3 px-4 text-right">{t("catalog.col_retail_price")}</th>
-              <th className="py-3 px-4 text-right">{t("catalog.col_wholesale_price")}</th>
-              <th className="py-3 px-4">{t("catalog.col_packaging")}</th>
-              <th className="py-3 px-4 text-right">{t("catalog.col_actions")}</th>
+              <th className="py-3 px-4">{t("catalog.col_sku") || "SKU"}</th>
+              <th className="py-3 px-4">{t("catalog.col_product") || "Product Name"}</th>
+              <th className="py-3 px-4">{t("catalog.col_category") || "Category"}</th>
+              <th className="py-3 px-4">{t("catalog.col_brand") || "Brand"}</th>
+              <th className="py-3 px-4">{t("catalog.col_barcode") || "Barcode"}</th>
+              <th className="py-3 px-4 text-right">{t("catalog.col_retail_price") || "Retail (PKR)"}</th>
+              <th className="py-3 px-4 text-right">{t("catalog.col_wholesale_price") || "Wholesale (PKR)"}</th>
+              <th className="py-3 px-4">{t("catalog.col_packaging") || "Packaging Unit"}</th>
+              <th className="py-3 px-4 text-right">{t("catalog.col_actions") || "Actions"}</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60">
+          <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60 font-sans">
             {filteredProducts.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center py-10 text-slate-500">
-                  {t("catalog.no_products")}
+                <td colSpan={9} className="text-center py-10 text-slate-400">
+                  {t("catalog.no_products") || "No products match your filter criteria."}
                 </td>
               </tr>
             ) : (
               filteredProducts.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-800/40 transition">
-                  <td className="py-3 px-4 font-mono text-emerald-400 font-medium">{p.sku}</td>
+                <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                  <td className="py-3 px-4 font-mono text-emerald-600 dark:text-emerald-400 font-bold">{p.sku}</td>
                   <td className="py-3 px-4">
-                    <div className="font-medium text-white">{p.name}</div>
-                    {p.nameUr && (
-                      <div className="text-[11px] text-emerald-400/90 font-nastaliq mt-0.5" dir="rtl">
-                        {p.nameUr}
-                      </div>
-                    )}
+                    <div className="font-semibold text-slate-900 dark:text-white">{p.name}</div>
                   </td>
-                  <td className="py-3 px-4 text-slate-400">{p.category}</td>
-                  <td className="py-3 px-4 text-slate-400">{p.brand}</td>
+                  <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{p.category}</td>
+                  <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{p.brand}</td>
                   <td className="py-3 px-4 font-mono">
                     {p.barcode ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[11px]">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px]">
                         <Barcode className="w-3 h-3 text-slate-400" />
                         {p.barcode}
                       </span>
                     ) : (
-                      <span className="text-slate-600">—</span>
+                      <span className="text-slate-400">—</span>
                     )}
                   </td>
-                  <td className="py-3 px-4 text-right font-mono font-semibold text-white">
+                  <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
                     PKR {p.retailPrice.toFixed(2)}
                   </td>
-                  <td className="py-3 px-4 text-right font-mono text-slate-400">
+                  <td className="py-3 px-4 text-right font-mono text-slate-500 dark:text-slate-400">
                     {p.wholesalePrice ? `PKR ${p.wholesalePrice.toFixed(2)}` : "—"}
                   </td>
                   <td className="py-3 px-4">
                     {p.packagingUnit ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
                         <Layers className="w-3 h-3" />
                         {p.packagingUnit.name} (x{p.packagingUnit.factor})
                       </span>
                     ) : (
-                      <span className="text-slate-500 text-[11px]">{p.unit}</span>
+                      <span className="text-slate-500 text-[11px] font-medium">{p.unit}</span>
                     )}
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-1.5">
                       <button
                         onClick={() => handleEdit(p)}
-                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                        className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
                         title="Edit Product"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleDelete(p.id)}
-                        className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition"
+                        className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition"
                         title="Delete Product"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

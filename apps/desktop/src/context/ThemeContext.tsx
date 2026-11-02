@@ -16,13 +16,30 @@ const ThemeContext = createContext<ThemeContextType>({
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<Theme>(() => {
-    const saved = localStorage.getItem("nextpos_theme");
-    return saved === "light" ? "light" : "dark";
+    try {
+      const saved = localStorage.getItem("nextpos_theme");
+      if (saved === "light" || saved === "dark") return saved;
+    } catch (e) {}
+    return "dark";
   });
+
+  const applyTheme = (t: Theme) => {
+    const root = document.documentElement;
+    if (t === "dark") {
+      root.classList.add("dark");
+      root.classList.remove("light");
+    } else {
+      root.classList.add("light");
+      root.classList.remove("dark");
+    }
+  };
 
   const setTheme = (t: Theme) => {
     setThemeState(t);
-    localStorage.setItem("nextpos_theme", t);
+    try {
+      localStorage.setItem("nextpos_theme", t);
+    } catch (e) {}
+    applyTheme(t);
   };
 
   const toggleTheme = () => {
@@ -30,14 +47,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (theme === "dark") {
-      root.classList.add("dark");
-      root.classList.remove("light");
-    } else {
-      root.classList.add("light");
-      root.classList.remove("dark");
-    }
+    applyTheme(theme);
   }, [theme]);
 
   // Global Ctrl+T shortcut to toggle theme

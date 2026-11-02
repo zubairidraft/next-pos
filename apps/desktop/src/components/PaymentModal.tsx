@@ -133,47 +133,47 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950/60">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
               <Banknote className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                {t("pos.pay_btn")}
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                {t("pos.pay_btn") || "Checkout & Payment"}
               </h2>
-              <p className="text-xs text-slate-400">
-                {customerName ? `${t("pos.customer")}: ${customerName}` : t("pos.walk_in_customer")}
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {customerName ? `${t("pos.customer") || "Customer"}: ${customerName}` : t("pos.walk_in_customer") || "Walk-in Customer"}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Grand Total Display */}
-        <div className="bg-gradient-to-r from-emerald-950/50 via-slate-900 to-emerald-950/30 px-6 py-5 border-b border-slate-800/80 flex items-center justify-between">
+        <div className="bg-slate-100/70 dark:bg-slate-950/60 px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <div>
-            <span className="text-xs uppercase tracking-wider text-emerald-400/90 font-medium">
-              {t("pos.grand_total")}
+            <span className="text-xs uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-bold">
+              {t("pos.grand_total") || "Grand Total"}
             </span>
-            <div className="text-3xl font-extrabold text-white tracking-tight">
+            <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
               {formatPkr(grandTotalPaisa)}
             </div>
           </div>
           {activeMethod === "cash" && (
             <div className="text-right">
-              <span className="text-xs uppercase tracking-wider text-amber-400 font-medium">
-                {t("pos.change_due")}
+              <span className="text-xs uppercase tracking-wider text-amber-600 dark:text-amber-400 font-bold">
+                {t("pos.change_due") || "Change Due"}
               </span>
-              <div className="text-3xl font-extrabold text-amber-300 tracking-tight">
+              <div className="text-3xl font-extrabold text-amber-600 dark:text-amber-400 tracking-tight">
                 {formatPkr(changePaisa)}
               </div>
             </div>
@@ -183,7 +183,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         {/* Content Body */}
         <div className="p-6 space-y-6">
           {errorMsg && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-center gap-2">
+            <div className="p-3 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-xl text-xs text-rose-600 dark:text-rose-300 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
@@ -191,96 +191,96 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
           {/* Payment Method Selector */}
           <div>
-            <label className="text-xs font-semibold text-slate-300 mb-2 block">
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2 block">
               Payment Method
             </label>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               <button
                 type="button"
                 onClick={() => setActiveMethod("cash")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-medium transition ${
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
                   activeMethod === "cash"
-                    ? "bg-emerald-600/30 border-emerald-500 text-emerald-300"
-                    : "bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800"
+                    ? "bg-emerald-600/15 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500"
+                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
                 }`}
               >
                 <Banknote className="w-5 h-5 mb-1.5" />
-                {t("pos.tender_cash")}
+                {t("pos.tender_cash") || "Cash"}
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveMethod("card")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-medium transition ${
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
                   activeMethod === "card"
-                    ? "bg-emerald-600/30 border-emerald-500 text-emerald-300"
-                    : "bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800"
+                    ? "bg-emerald-600/15 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500"
+                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
                 }`}
               >
                 <CreditCard className="w-5 h-5 mb-1.5" />
-                {t("pos.tender_card")}
+                {t("pos.tender_card") || "Card"}
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveMethod("jazzcash")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-medium transition ${
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
                   activeMethod === "jazzcash"
-                    ? "bg-red-600/30 border-red-500 text-red-300"
-                    : "bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800"
+                    ? "bg-rose-600/15 border-rose-500 text-rose-700 dark:text-rose-300 ring-1 ring-rose-500"
+                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
                 }`}
               >
-                <Smartphone className="w-5 h-5 mb-1.5 text-red-400" />
-                {t("pos.tender_jazzcash")}
+                <Smartphone className="w-5 h-5 mb-1.5 text-rose-500" />
+                JazzCash
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveMethod("easypaisa")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-medium transition ${
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
                   activeMethod === "easypaisa"
-                    ? "bg-emerald-600/30 border-emerald-500 text-emerald-300"
-                    : "bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800"
+                    ? "bg-emerald-600/15 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500"
+                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
                 }`}
               >
-                <Smartphone className="w-5 h-5 mb-1.5 text-emerald-400" />
-                {t("pos.tender_easypaisa")}
+                <Smartphone className="w-5 h-5 mb-1.5 text-emerald-500" />
+                EasyPaisa
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveMethod("raast")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-medium transition ${
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
                   activeMethod === "raast"
-                    ? "bg-blue-600/30 border-blue-500 text-blue-300"
-                    : "bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800"
+                    ? "bg-sky-600/15 border-sky-500 text-sky-700 dark:text-sky-300 ring-1 ring-sky-500"
+                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
                 }`}
               >
-                <Coins className="w-5 h-5 mb-1.5 text-blue-400" />
-                {t("pos.tender_raast")}
+                <Coins className="w-5 h-5 mb-1.5 text-sky-500" />
+                Raast P2M
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveMethod("credit")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-medium transition ${
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
                   activeMethod === "credit"
-                    ? "bg-amber-600/30 border-amber-500 text-amber-300"
-                    : "bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800"
+                    ? "bg-amber-600/15 border-amber-500 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500"
+                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
                 }`}
               >
-                <BookOpen className="w-5 h-5 mb-1.5 text-amber-400" />
-                {t("pos.tender_credit")}
+                <BookOpen className="w-5 h-5 mb-1.5 text-amber-500" />
+                Khata (Credit)
               </button>
             </div>
           </div>
 
           {/* Dynamic input per tender method */}
           {activeMethod === "cash" && (
-            <div className="space-y-4 bg-slate-950/40 p-4 rounded-xl border border-slate-800">
+            <div className="space-y-4 bg-slate-50 dark:bg-slate-950/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <label className="text-xs font-medium text-slate-300">
-                  {t("pos.amount_received")} (PKR):
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  {t("pos.amount_received") || "Amount Received"} (PKR):
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -292,28 +292,28 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       const val = parseFloat(e.target.value) || 0;
                       setCashTenderedPaisa(Math.round(val * 100));
                     }}
-                    className="w-40 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-right text-lg font-bold text-white focus:outline-none focus:border-emerald-500"
+                    className="w-40 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-right text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 shadow-xs"
                     autoFocus
                   />
                   <button
                     type="button"
                     onClick={() => setCashTenderedPaisa(grandTotalPaisa)}
-                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 rounded-lg border border-slate-700"
+                    className="px-3 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 rounded-lg border border-slate-300 dark:border-slate-700 transition"
                   >
-                    {t("pos.exact_amount")}
+                    {t("pos.exact_amount") || "Exact"}
                   </button>
                 </div>
               </div>
 
               {/* Quick PKR Cash Bills */}
-              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/60">
-                <span className="text-[11px] text-slate-400">Quick Bills:</span>
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800/60">
+                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Quick Cash Bills:</span>
                 {[100, 500, 1000, 5000].map((bill) => (
                   <button
                     key={bill}
                     type="button"
                     onClick={() => addCashAmount(bill)}
-                    className="px-3 py-1.5 bg-slate-800/80 hover:bg-emerald-600/30 hover:border-emerald-500/50 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition"
+                    className="px-3 py-1.5 bg-white dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-emerald-600/30 hover:border-emerald-500 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-700 transition shadow-2xs"
                   >
                     +{bill} PKR
                   </button>
@@ -323,8 +323,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           )}
 
           {activeMethod !== "cash" && activeMethod !== "credit" && (
-            <div className="space-y-2 bg-slate-950/40 p-4 rounded-xl border border-slate-800">
-              <label className="text-xs font-medium text-slate-300 block">
+            <div className="space-y-2 bg-slate-50 dark:bg-slate-950/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
                 Transaction / Slip Reference (Optional):
               </label>
               <input
@@ -332,18 +332,18 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 value={digitalRef}
                 onChange={(e) => setDigitalRef(e.target.value)}
                 placeholder="e.g. TID-982341, Last 4 digits, or Approval Code"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 shadow-xs"
               />
             </div>
           )}
 
           {activeMethod === "credit" && (
-            <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2">
-              <div className="flex items-center gap-2 text-amber-300 font-semibold text-xs">
+            <div className="p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl space-y-2">
+              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 font-semibold text-xs">
                 <BookOpen className="w-4 h-4" />
                 <span>Customer Khata Posting</span>
               </div>
-              <p className="text-xs text-amber-200/80">
+              <p className="text-xs text-amber-800 dark:text-amber-200/80">
                 {customerId
                   ? `This entire sale amount (${formatPkr(
                       grandTotalPaisa
@@ -355,19 +355,19 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="px-6 py-4 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between">
+        <div className="px-6 py-4 bg-slate-50 dark:bg-slate-950/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-xl border border-slate-700 transition"
+            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-700 transition"
           >
-            {t("pos.cancel")} (Esc)
+            {t("pos.cancel") || "Cancel"} (Esc)
           </button>
 
           <button
             type="button"
             onClick={handleFinishSale}
-            className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-950 transition"
+            className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl shadow-lg transition"
           >
             <CheckCircle2 className="w-5 h-5" />
             <span>Complete Sale & Print (Enter)</span>

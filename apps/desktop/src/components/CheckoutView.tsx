@@ -7,6 +7,7 @@ import { PrinterSettingsModal } from "./PrinterSettingsModal";
 import { ShiftCloseModal } from "./ShiftCloseModal";
 import { SaleReturnsModal } from "./SaleReturnsModal";
 import { ReceiptModal } from "./ReceiptModal";
+import { useTheme } from "../context/ThemeContext";
 import {
   Plus,
   Minus,
@@ -24,6 +25,8 @@ import {
   Package,
   HelpCircle,
   Keyboard,
+  Sun,
+  Moon,
 } from "lucide-react";
 
 // Catalog items for immediate scanning, offline fallback, and testing
@@ -109,6 +112,7 @@ const SAMPLE_PRODUCTS: QuickProduct[] = [
 ];
 
 export const CheckoutView: React.FC = () => {
+  const { theme, toggleTheme } = useTheme();
   // State
   const [barcodeInput, setBarcodeInput] = useState("");
   const [cartLines, setCartLines] = useState<CartLineItem[]>([
@@ -1021,6 +1025,19 @@ export const CheckoutView: React.FC = () => {
                 title="Keyboard Shortcuts Cheat Sheet (F1)"
               >
                 <HelpCircle className="w-4 h-4 text-sky-500 dark:text-sky-400" />
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="p-2 bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-700 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition"
+                title={`Toggle Light/Dark Theme (Ctrl+T) - Currently: ${theme === "dark" ? "Dark" : "Light"}`}
+              >
+                {theme === "dark" ? (
+                  <Sun className="w-4 h-4 text-amber-400" />
+                ) : (
+                  <Moon className="w-4 h-4 text-indigo-500" />
+                )}
               </button>
             </div>
           </div>
