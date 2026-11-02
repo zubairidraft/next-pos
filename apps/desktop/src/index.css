@@ -1,3 +1,6 @@
+@import "@fontsource/noto-nastaliq-urdu/400.css";
+@import "@fontsource/noto-nastaliq-urdu/700.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -11,6 +14,10 @@
 html[dir="rtl"] {
   font-family: "Noto Nastaliq Urdu", "Urdu Typesetting", "Jameel Noori Nastaleeq", "Segoe UI", Tahoma, sans-serif;
   line-height: 1.8;
+}
+
+.font-nastaliq {
+  font-family: "Noto Nastaliq Urdu", serif;
 }
 
 html[dir="rtl"] input,

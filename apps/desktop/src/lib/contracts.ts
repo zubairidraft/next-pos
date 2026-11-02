@@ -21,6 +21,7 @@ export interface CartLineItem {
   sku: string;
   barcode: string;
   unit_code: string;
+  unit_id?: string;
   qty_milli: number; // 1000 = 1.000
   unit_price_paisa: number;
   discount_paisa: number;

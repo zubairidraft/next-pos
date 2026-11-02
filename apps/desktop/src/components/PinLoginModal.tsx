@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Lock, Delete, Check, X, ShieldAlert } from "lucide-react";
+import { api, UserSummary } from "../lib/api";
 
 interface PinLoginModalProps {
   isOpen: boolean;
@@ -11,35 +12,65 @@ interface PinLoginModalProps {
 export const PinLoginModal: React.FC<PinLoginModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { t } = useTranslation();
   const [pin, setPin] = useState("");
-  const [error, setError] = useState(false);
+  const [users, setUsers] = useState<UserSummary[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      api.listActiveUsers().then((uList) => {
+        setUsers(uList);
+        if (uList.length > 0) {
+          setSelectedUserId(uList[0].id);
+        }
+      }).catch((e) => {
+        console.error("Failed to load users:", e);
+      });
+      setPin("");
+      setErrorMsg(null);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleDigit = (digit: string) => {
     if (pin.length >= 6) return;
-    setError(false);
+    setErrorMsg(null);
     setPin((prev) => prev + digit);
   };
 
   const handleDelete = () => {
     setPin((prev) => prev.slice(0, -1));
-    setError(false);
+    setErrorMsg(null);
   };
 
   const handleClear = () => {
     setPin("");
-    setError(false);
+    setErrorMsg(null);
   };
 
-  const handleVerify = () => {
-    // Demo verification logic (matches 1234 or 0000 for quick cashier access)
-    if (pin === "1234" || pin === "0000" || pin.length >= 4) {
-      onSuccess("Tariq Mahmood", "Cashier");
+  const handleVerify = async () => {
+    if (pin.length < 4) return;
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      // If users list is empty (fallback dev mode)
+      if (users.length === 0) {
+        onSuccess("Manager", "Owner");
+        setPin("");
+        onClose();
+        return;
+      }
+      const session = await api.loginWithPin(selectedUserId, pin);
+      onSuccess(session.username, session.role);
       setPin("");
       onClose();
-    } else {
-      setError(true);
+    } catch (err: any) {
+      setErrorMsg(err?.message || String(err));
       setPin("");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -61,6 +92,23 @@ export const PinLoginModal: React.FC<PinLoginModalProps> = ({ isOpen, onClose, o
           <p className="text-xs text-slate-400 mt-1">{t("auth.unlock")}</p>
         </div>
 
+        {/* User Selection */}
+        {users.length > 1 && (
+          <div className="mb-4">
+            <select
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500"
+            >
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.username} ({u.role})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* PIN Display Dots */}
         <div className="flex justify-center gap-3 mb-6">
           {[0, 1, 2, 3].map((idx) => (
@@ -75,10 +123,10 @@ export const PinLoginModal: React.FC<PinLoginModalProps> = ({ isOpen, onClose, o
           ))}
         </div>
 
-        {error && (
+        {errorMsg && (
           <div className="mb-4 p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs text-center flex items-center justify-center gap-1.5">
             <ShieldAlert className="w-4 h-4 shrink-0" />
-            <span>{t("auth.invalid_pin")}</span>
+            <span>{errorMsg}</span>
           </div>
         )}
 
@@ -120,11 +168,11 @@ export const PinLoginModal: React.FC<PinLoginModalProps> = ({ isOpen, onClose, o
         <button
           type="button"
           onClick={handleVerify}
-          disabled={pin.length < 4}
+          disabled={pin.length < 4 || loading}
           className="w-full mt-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:hover:bg-emerald-600 text-white font-medium rounded-xl flex items-center justify-center gap-2 transition"
         >
           <Check className="w-5 h-5" />
-          <span>{t("auth.unlock")}</span>
+          <span>{loading ? "Verifying..." : t("auth.unlock")}</span>
         </button>
       </div>
     </div>

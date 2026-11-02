@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Store, Layers, Calculator, KeyRound, ArrowRight, ArrowLeft, Check } from "lucide-react";
+import { Store, Layers, Calculator, KeyRound, ArrowRight, ArrowLeft, Check, AlertCircle } from "lucide-react";
+import { api } from "../lib/api";
 
 interface FirstRunWizardProps {
   onComplete: () => void;
@@ -9,6 +10,8 @@ interface FirstRunWizardProps {
 export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) => {
   const { t } = useTranslation();
   const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     shopNameEn: "Al-Rehman Superstore",
@@ -19,13 +22,36 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
     pack: "grocery",
     taxMode: "inclusive",
     policy: "Block",
-    adminUser: "admin",
-    adminPassword: "",
+    adminUser: "owner",
+    adminPassword: "password123",
     cashierPin: "1234",
   });
 
-  const nextStep = () => setStep((s) => Math.min(s + 1, 4));
-  const prevStep = () => setStep((s) => Math.max(s - 1, 1));
+  const nextStep = () => {
+    setErrorMsg(null);
+    setStep((s) => Math.min(s + 1, 4));
+  };
+  const prevStep = () => {
+    setErrorMsg(null);
+    setStep((s) => Math.max(s - 1, 1));
+  };
+
+  const handleFinish = async () => {
+    setErrorMsg(null);
+    if (!formData.adminPassword || formData.adminPassword.length < 8) {
+      setErrorMsg("Owner password must be at least 8 characters");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.setupFirstOwner(formData.adminUser, formData.adminPassword, formData.cashierPin);
+      onComplete();
+    } catch (err: any) {
+      setErrorMsg(err?.message || String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="max-w-2xl mx-auto w-full bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden p-8">
@@ -288,14 +314,22 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
         ) : (
           <button
             type="button"
-            onClick={onComplete}
-            className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition"
+            onClick={handleFinish}
+            disabled={loading}
+            className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition"
           >
             <Check className="w-4 h-4" />
-            <span>{t("wizard.finish_btn")}</span>
+            <span>{loading ? "Creating..." : t("wizard.finish_btn")}</span>
           </button>
         )}
       </div>
+
+      {errorMsg && (
+        <div className="mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
     </div>
   );
 };

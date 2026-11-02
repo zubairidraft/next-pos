@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { LanguageProvider, useAppLanguage } from "./context/LanguageContext";
 import { PinLoginModal } from "./components/PinLoginModal";
@@ -16,6 +16,7 @@ import { LicenseView } from "./components/LicenseView";
 import { IndustryPacksView } from "./components/IndustryPacksView";
 import { SystemDiagnosticsModal } from "./components/SystemDiagnosticsModal";
 import { SystemStatusDto } from "./lib/contracts";
+import { api } from "./lib/api";
 import {
   ShieldCheck,
   Database,
@@ -26,7 +27,6 @@ import {
   Boxes,
   Languages,
   KeyRound,
-  LayoutDashboard,
   FolderTree,
   Wand2,
   Package,
@@ -38,6 +38,7 @@ import {
   HardDriveDownload,
   Key,
   Activity,
+  MoreHorizontal,
 } from "lucide-react";
 
 function AppContent() {
@@ -48,10 +49,27 @@ function AppContent() {
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
-    name: "Tariq Mahmood",
-    role: "Cashier",
+    name: "Owner",
+    role: "Owner",
   });
+
+  useEffect(() => {
+    api.getSystemStatus().then((sys) => {
+      if (sys.is_first_run) {
+        setActiveTab("wizard");
+      }
+      if (sys.current_user) {
+        setCurrentUser({
+          name: sys.current_user.username,
+          role: sys.current_user.role,
+        });
+      }
+    }).catch((err) => {
+      console.warn("Could not query system status via IPC:", err);
+    });
+  }, []);
 
   const [status] = useState<SystemStatusDto>({
     app_name: "Next POS (کاروبار پی او ایس)",
@@ -90,139 +108,124 @@ function AppContent() {
         </div>
 
         {/* Center Nav Tabs */}
-        <nav className="hidden md:flex items-center gap-1 bg-slate-950/70 p-1 rounded-xl border border-slate-800/80">
+        <nav className="flex items-center gap-1 bg-slate-950/70 p-1 rounded-xl border border-slate-800/80">
           <button
-            onClick={() => setActiveTab("checkout")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
+            onClick={() => { setActiveTab("checkout"); setIsMoreMenuOpen(false); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
               activeTab === "checkout"
                 ? "bg-emerald-600 text-white shadow-sm shadow-emerald-950"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
             <ShoppingCart className="w-3.5 h-3.5" />
-            POS Terminal
+            <span>POS</span>
           </button>
           <button
-            onClick={() => setActiveTab("catalog")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+            onClick={() => { setActiveTab("catalog"); setIsMoreMenuOpen(false); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
               activeTab === "catalog"
                 ? "bg-emerald-600 text-white shadow-sm"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
             <Package className="w-3.5 h-3.5" />
-            {t("nav.catalog")}
+            <span>{language === "ur" ? "اشیاء" : "Catalog"}</span>
           </button>
           <button
-            onClick={() => setActiveTab("purchasing")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "purchasing"
-                ? "bg-slate-800 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Truck className="w-3.5 h-3.5" />
-            {t("nav.inventory")}
-          </button>
-          <button
-            onClick={() => setActiveTab("khata")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+            onClick={() => { setActiveTab("khata"); setIsMoreMenuOpen(false); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
               activeTab === "khata"
                 ? "bg-emerald-600 text-white shadow-sm"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
-            Khata (کھاتہ)
+            <span>{language === "ur" ? "کھاتہ" : "Khata"}</span>
           </button>
           <button
-            onClick={() => setActiveTab("reports")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+            onClick={() => { setActiveTab("purchasing"); setIsMoreMenuOpen(false); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === "purchasing"
+                ? "bg-emerald-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Truck className="w-3.5 h-3.5" />
+            <span>{language === "ur" ? "اسٹاک" : "Inventory"}</span>
+          </button>
+          <button
+            onClick={() => { setActiveTab("reports"); setIsMoreMenuOpen(false); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
               activeTab === "reports"
                 ? "bg-emerald-600 text-white shadow-sm"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
             <BarChart3 className="w-3.5 h-3.5" />
-            Reports (رپورٹس)
+            <span>{language === "ur" ? "رپورٹس" : "Reports"}</span>
           </button>
-          <button
-            onClick={() => setActiveTab("backup")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "backup"
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <HardDriveDownload className="w-3.5 h-3.5" />
-            Backup (بیک اپ)
-          </button>
-          <button
-            onClick={() => setActiveTab("packs")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "packs"
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Boxes className="w-3.5 h-3.5" />
-            Packs (انڈسٹری)
-          </button>
-          <button
-            onClick={() => setActiveTab("license")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "license"
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Key className="w-3.5 h-3.5" />
-            License (لائسنس)
-          </button>
-          <button
-            onClick={() => setActiveTab("audit")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "audit"
-                ? "bg-slate-800 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <ClipboardCheck className="w-3.5 h-3.5" />
-            {t("audit.tab_active_session").split("(")[0].trim()}
-          </button>
-          <button
-            onClick={() => setActiveTab("master")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "master"
-                ? "bg-slate-800 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <FolderTree className="w-3.5 h-3.5" />
-            {t("nav.master_data")}
-          </button>
-          <button
-            onClick={() => setActiveTab("dashboard")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "dashboard"
-                ? "bg-slate-800 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <LayoutDashboard className="w-3.5 h-3.5" />
-            {t("nav.dashboard")}
-          </button>
-          <button
-            onClick={() => setActiveTab("wizard")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "wizard"
-                ? "bg-slate-800 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Wand2 className="w-3.5 h-3.5" />
-            {t("nav.setup_wizard")}
-          </button>
+
+          {/* More Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setIsMoreMenuOpen((v) => !v)}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                ["backup", "packs", "license", "audit", "master", "wizard"].includes(activeTab)
+                  ? "bg-emerald-600/30 text-emerald-400 border border-emerald-500/30"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <MoreHorizontal className="w-3.5 h-3.5" />
+              <span>{language === "ur" ? "مزید" : "More"}</span>
+            </button>
+
+            {isMoreMenuOpen && (
+              <div className="absolute right-0 rtl:right-auto rtl:left-0 top-full mt-1.5 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
+                <button
+                  onClick={() => { setActiveTab("backup"); setIsMoreMenuOpen(false); }}
+                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2"
+                >
+                  <HardDriveDownload className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Backup (بیک اپ)</span>
+                </button>
+                <button
+                  onClick={() => { setActiveTab("license"); setIsMoreMenuOpen(false); }}
+                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2"
+                >
+                  <Key className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>License (لائسنس)</span>
+                </button>
+                <button
+                  onClick={() => { setActiveTab("packs"); setIsMoreMenuOpen(false); }}
+                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2"
+                >
+                  <Boxes className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Industry Packs (انڈسٹری)</span>
+                </button>
+                <button
+                  onClick={() => { setActiveTab("audit"); setIsMoreMenuOpen(false); }}
+                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2"
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Stock Audit (اسٹاک چیک)</span>
+                </button>
+                <button
+                  onClick={() => { setActiveTab("master"); setIsMoreMenuOpen(false); }}
+                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2"
+                >
+                  <FolderTree className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Master Data (ماسٹر ڈیٹا)</span>
+                </button>
+                <button
+                  onClick={() => { setActiveTab("wizard"); setIsMoreMenuOpen(false); }}
+                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2 border-t border-slate-800"
+                >
+                  <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Setup Wizard</span>
+                </button>
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* Right Action Controls */}
