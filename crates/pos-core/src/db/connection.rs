@@ -21,8 +21,9 @@ pub fn sqlcipher_version(conn: &Connection) -> Result<String> {
         .ok();
     match v {
         Some(v) if !v.trim().is_empty() => Ok(v),
-        // Fallback for dev / tests when SQLCipher is not statically linked
-        _ => Ok("bundled-dev".into()),
+        _ => Err(PosError::Db(
+            "This build is not linked with SQLCipher; refusing to open an unencrypted database".into(),
+        )),
     }
 }
 

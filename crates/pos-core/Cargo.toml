@@ -11,7 +11,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
 ulid.workspace = true
-rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl", "chrono"] }
 refinery = { version = "0.8", features = ["rusqlite"] }
 log = "0.4"
 argon2 = "0.5"
