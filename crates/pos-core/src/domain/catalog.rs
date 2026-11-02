@@ -90,6 +90,7 @@ pub struct ProductSearchResult {
     pub wholesale_price_paisa: Option<i64>,
     pub tax_rate_bp: i32,
     pub tax_inclusive: bool,
+    pub stock_on_hand_milli: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +141,7 @@ impl CatalogRepo {
             wholesale_price_paisa: row.get(13)?,
             tax_rate_bp: row.get::<_, Option<i32>>(14)?.unwrap_or(0),
             tax_inclusive: row.get::<_, Option<i32>>(15)?.unwrap_or(1) == 1,
+            stock_on_hand_milli: row.get::<_, Option<i64>>(16)?.unwrap_or(0),
         })
     }
 
@@ -160,12 +162,13 @@ impl CatalogRepo {
             (SELECT price_paisa FROM prices WHERE variant_id = pv.id AND price_list_id = 'retail' LIMIT 1) as retail_price_paisa,
             (SELECT price_paisa FROM prices WHERE variant_id = pv.id AND price_list_id = 'wholesale' LIMIT 1) as wholesale_price_paisa,
             COALESCE(tr.rate_bp, 0) as tax_rate_bp,
-            COALESCE(tr.inclusive, 1) as tax_inclusive
+            COALESCE(tr.inclusive, 1) as tax_inclusive,
+            COALESCE((SELECT on_hand_milli FROM inventory_balances WHERE variant_id = pv.id LIMIT 1), 0) as stock_on_hand_milli
         FROM products p
         JOIN product_variants pv ON pv.product_id = p.id AND pv.is_default = 1
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN brands b ON b.id = p.brand_id
-        JOIN units u ON u.id = p.base_unit_id
+        LEFT JOIN units u ON u.id = p.base_unit_id
         LEFT JOIN tax_rates tr ON tr.id = p.tax_rate_id
     ";
 

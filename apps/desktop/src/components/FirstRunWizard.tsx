@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Store, Layers, Calculator, KeyRound, ArrowRight, ArrowLeft, Check, AlertCircle } from "lucide-react";
+import { Store, Layers, Calculator, KeyRound, ArrowRight, ArrowLeft, Check, AlertCircle, Sparkles, FolderPlus } from "lucide-react";
 import { api } from "../lib/api";
 
 interface FirstRunWizardProps {
@@ -13,7 +13,21 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    accountType: "demo" | "fresh";
+    shopNameEn: string;
+    shopNameUr: string;
+    phone: string;
+    address: string;
+    ntn: string;
+    pack: string;
+    taxMode: string;
+    policy: string;
+    adminUser: string;
+    adminPassword: string;
+    cashierPin: string;
+  }>({
+    accountType: "demo",
     shopNameEn: "Al-Rehman Superstore",
     shopNameUr: "الرحمٰن سپر اسٹور",
     phone: "03001234567",
@@ -29,7 +43,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
 
   const nextStep = () => {
     setErrorMsg(null);
-    setStep((s) => Math.min(s + 1, 4));
+    setStep((s) => Math.min(s + 1, 5));
   };
   const prevStep = () => {
     setErrorMsg(null);
@@ -44,7 +58,16 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
     }
     setLoading(true);
     try {
-      await api.setupFirstOwner(formData.adminUser, formData.adminPassword, formData.cashierPin);
+      await api.setupFirstOwner({
+        username: formData.adminUser,
+        password: formData.adminPassword,
+        pin: formData.cashierPin,
+        shop_name: formData.shopNameEn,
+        shop_name_ur: formData.shopNameUr,
+        phone: formData.phone,
+        address: formData.address,
+        account_type: formData.accountType,
+      });
       onComplete();
     } catch (err: any) {
       setErrorMsg(err?.message || String(err));
@@ -61,7 +84,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
 
         {/* Stepper indicators */}
         <div className="flex justify-center items-center gap-2 mt-6">
-          {[1, 2, 3, 4].map((i) => (
+          {[1, 2, 3, 4, 5].map((i) => (
             <div
               key={i}
               className={`h-2 rounded-full transition-all ${
@@ -76,8 +99,90 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
         </div>
       </div>
 
-      {/* Step 1: Shop Profile */}
+      {/* Step 1: Account Type Selection (Demo vs Fresh) */}
       {step === 1 && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400 mb-2">
+            <Sparkles className="w-4 h-4" />
+            <span>اکاؤنٹ کی قسم منتخب کریں / Select Account Mode</span>
+          </div>
+
+          <div
+            onClick={() =>
+              setFormData({
+                ...formData,
+                accountType: "demo",
+                shopNameEn: formData.shopNameEn || "Al-Rehman Superstore",
+                shopNameUr: formData.shopNameUr || "الرحمٰن سپر اسٹور",
+              })
+            }
+            className={`p-5 rounded-2xl border cursor-pointer transition ${
+              formData.accountType === "demo"
+                ? "border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
+                : "border-slate-800 bg-slate-800/40 hover:border-slate-700"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold text-white text-base">
+                    1. Demo Account (ڈیمو اکاؤنٹ - آزمائشی موڈ)
+                  </div>
+                  <div className="text-xs text-emerald-400 mt-0.5">تجربہ اور تمام فیچرز چیک کرنے کے لیے</div>
+                </div>
+              </div>
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300">
+                تجرباتی
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-3 leading-relaxed">
+              اس موڈ میں پہلے سے ریٹیل اشیاء (ٹپال چائے، ڈالڈا آئل، اولپرز دودھ، باسمتی چاول، لکس صابن)، اسٹاک بیلنس اور ادھار کھاتہ موجود ہوگا تاکہ آپ فوری طور پر بارکوڈ اسکین، بل پرنٹنگ، شفٹس اور رپورٹس ٹیسٹ کر سکیں۔
+            </p>
+          </div>
+
+          <div
+            onClick={() =>
+              setFormData({
+                ...formData,
+                accountType: "fresh",
+                shopNameEn: formData.shopNameEn === "Al-Rehman Superstore" ? "My Retail Store" : formData.shopNameEn,
+                shopNameUr: formData.shopNameUr === "الرحمٰن سپر اسٹور" ? "میری دکان" : formData.shopNameUr,
+              })
+            }
+            className={`p-5 rounded-2xl border cursor-pointer transition ${
+              formData.accountType === "fresh"
+                ? "border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
+                : "border-slate-800 bg-slate-800/40 hover:border-slate-700"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-500/20 text-blue-400">
+                  <FolderPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold text-white text-base">
+                    2. Fresh Account (فریش اکاؤنٹ - نئی دکان کا آغاز)
+                  </div>
+                  <div className="text-xs text-blue-400 mt-0.5">0 ٹرانزیکشنز، بالکل صاف ڈیٹا بیس</div>
+                </div>
+              </div>
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300">
+                100% کلین
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-3 leading-relaxed">
+              بالکل نیا کھاتہ! کوئی ڈمی سیل یا ڈمی پروڈکٹ نہیں ہوگی۔ 0 سے اسٹور شروع ہوگا تاکہ دکاندار اپنی اصلی اشیاء اور اصل بارکوڈز خود درج کر کے حقیقی کاروبار شروع کر سکے۔
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Shop Profile */}
+      {step === 2 && (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400 mb-2">
             <Store className="w-4 h-4" />
@@ -149,8 +254,8 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
         </div>
       )}
 
-      {/* Step 2: Industry Pack */}
-      {step === 2 && (
+      {/* Step 3: Industry Pack */}
+      {step === 3 && (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400 mb-2">
             <Layers className="w-4 h-4" />
@@ -187,8 +292,8 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
         </div>
       )}
 
-      {/* Step 3: Tax & Currency */}
-      {step === 3 && (
+      {/* Step 4: Tax & Currency */}
+      {step === 4 && (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400 mb-2">
             <Calculator className="w-4 h-4" />
@@ -239,8 +344,8 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
         </div>
       )}
 
-      {/* Step 4: Admin Credentials */}
-      {step === 4 && (
+      {/* Step 5: Admin Credentials */}
+      {step === 5 && (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400 mb-2">
             <KeyRound className="w-4 h-4" />
@@ -302,7 +407,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) =>
           <div />
         )}
 
-        {step < 4 ? (
+        {step < 5 ? (
           <button
             type="button"
             onClick={nextStep}

@@ -7,13 +7,13 @@ use pos_core::backup::CryptoBackupService;
 use pos_core::db::connection::{open_encrypted_db, run_migrations};
 use pos_core::db::key::DbKeyManager;
 use pos_core::domain::{
-    AnalyticsRepo, CashSession, CatalogRepo, CompletedSale, FinancialSummary,
+    AnalyticsRepo, BusinessSettings, CashSession, CatalogRepo, CompletedSale, FinancialSummary,
     KhataRepo, PostSaleRequest, ProductSearchResult,
     ReturnRepo, PostReturnRequest, CompletedReturn, SaleRepo, SettingsRepo, ShiftRepo,
 };
 use pos_core::error::PosError;
 use rusqlite::{params, Connection};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::State;
 
@@ -61,55 +61,90 @@ fn seed_master_data_if_empty(conn: &Connection) -> Result<(), PosError> {
     let units_count: i64 = conn.query_row("SELECT count(*) FROM units", [], |r| r.get(0))?;
     if units_count == 0 {
         let now = Utc::now().to_rfc3339();
-        conn.execute("INSERT INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-pc', 'PC', 'Piece / عدد', 0, ?1)", [&now])?;
-        conn.execute("INSERT INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-pkt', 'PKT', 'Packet / پیکٹ', 0, ?1)", [&now])?;
-        conn.execute("INSERT INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-kg', 'KG', 'Kilogram / کلو', 3, ?1)", [&now])?;
-        conn.execute("INSERT INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-ltr', 'LTR', 'Litre / لٹر', 3, ?1)", [&now])?;
-        conn.execute("INSERT INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-ctn', 'CTN', 'Carton / کاٹن', 0, ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-pc', 'PC', 'Piece / عدد', 0, ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-pkt', 'PKT', 'Packet / پیکٹ', 0, ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-kg', 'KG', 'Kilogram / کلو', 3, ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-ltr', 'LTR', 'Litre / لٹر', 3, ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-ctn', 'CTN', 'Carton / کاٹن', 0, ?1)", [&now])?;
 
-        conn.execute("INSERT INTO categories (id, name, name_ur, created_at) VALUES ('cat-bev', 'Beverages', 'مشروبات اور چائے', ?1)", [&now])?;
-        conn.execute("INSERT INTO categories (id, name, name_ur, created_at) VALUES ('cat-oil', 'Cooking Oil & Ghee', 'گھی اور تیل', ?1)", [&now])?;
-        conn.execute("INSERT INTO categories (id, name, name_ur, created_at) VALUES ('cat-dry', 'Dairy & Breakfast', 'ڈیری اور ناشتہ', ?1)", [&now])?;
-        conn.execute("INSERT INTO categories (id, name, name_ur, created_at) VALUES ('cat-rice', 'Grains & Pulses', 'اناج اور دالیں', ?1)", [&now])?;
-        conn.execute("INSERT INTO categories (id, name, name_ur, created_at) VALUES ('cat-soap', 'Personal Care', 'صابن اور شیمپو', ?1)", [&now])?;
-        conn.execute("INSERT INTO categories (id, name, name_ur, created_at) VALUES ('cat-spc', 'Spices & Recipe Mix', 'مصالحہ جات', ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-bev', 'Beverages', 'مشروبات اور چائے', ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-oil', 'Cooking Oil & Ghee', 'گھی اور تیل', ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-dry', 'Dairy & Breakfast', 'ڈیری اور ناشتہ', ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-rice', 'Grains & Pulses', 'اناج اور دالیں', ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-soap', 'Personal Care', 'صابن اور شیمپو', ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-spc', 'Spices & Recipe Mix', 'مصالحہ جات', ?1)", [&now])?;
 
-        conn.execute("INSERT INTO parties (id, name, name_ur, party_type, phone, credit_limit_paisa, created_at) VALUES ('cust-walkin', 'Walk-in Customer', 'عام گاہک', 'customer', '03000000000', 0, ?1)", [&now])?;
-        conn.execute("INSERT INTO parties (id, name, name_ur, party_type, phone, credit_limit_paisa, created_at) VALUES ('cust-001', 'Haji Abdul Rehman (Kiryana)', 'حاجی عبدالرحمان کریانہ', 'customer', '03001234567', 10000000, ?1)", [&now])?;
-
-        // Products with real packaging & barcode
-        let seed_products = [
-            ("prod-01", "var-001", "Tapal Danedar Tea 450g", "ٹپال دانے دار چائے ۴۵۰ گرام", "BEV-TEA-450", "8961014001018", "u-pkt", "cat-bev", 62000, 50000),
-            ("prod-02", "var-002", "Dalda Cooking Oil 1 Litre Pouch", "ڈالڈا کوکنگ آئل ۱ لٹر پاؤچ", "GRO-OIL-1L", "8961014002022", "u-pc", "cat-oil", 54000, 40000),
-            ("prod-03", "var-003", "Olper's Milk 1000ml", "اولپرز دودھ ۱۰۰۰ ملی لٹر", "DRY-MLK-1L", "8961014003036", "u-pc", "cat-dry", 29000, 80000),
-            ("prod-04", "var-004", "National Basmati Rice 5kg", "نیشنل باسمتی چاول ۵ کلو", "GRN-RCE-5K", "8961014004043", "u-pc", "cat-rice", 175000, 20000),
-            ("prod-05", "var-005", "Lux Beauty Soap 150g", "لکس بیوٹی صابن ۱۵۰ گرام", "SOAP-LUX-150", "8961014005050", "u-pc", "cat-soap", 15000, 100000),
-            ("prod-06", "var-006", "Shan Bombay Biryani Masala 50g", "شان بمبئی بریانی مصالحہ ۵۰ گرام", "SPC-BRY-50", "8961014006067", "u-pc", "cat-spc", 11000, 60000),
-        ];
-
-        for (pid, vid, name, name_ur, sku, barcode, unit_id, cat_id, price, stock) in seed_products {
-            conn.execute(
-                "INSERT INTO products (id, name, name_ur, category_id, base_unit_id, track_inventory, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?6)",
-                params![pid, name, name_ur, cat_id, unit_id, now],
-            )?;
-            conn.execute(
-                "INSERT INTO product_variants (id, product_id, sku, barcode, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-                params![vid, pid, sku, barcode, now],
-            )?;
-            conn.execute(
-                "INSERT INTO packaging_units (id, variant_id, unit_id, conversion_factor_milli, is_base_unit, barcode, created_at) VALUES (?1, ?2, ?3, 1000, 1, ?4, ?5)",
-                params![format!("pkg-{}", vid), vid, unit_id, barcode, now],
-            )?;
-            conn.execute(
-                "INSERT INTO price_list_items (id, price_list_id, variant_id, packaging_unit_id, unit_price_paisa, created_at) VALUES (?1, 'retail', ?2, ?3, ?4, ?5)",
-                params![format!("prc-{}", vid), vid, format!("pkg-{}", vid), price, now],
-            )?;
-            conn.execute(
-                "INSERT INTO inventory_balances (variant_id, quantity_milli, moving_average_cost_paisa, updated_at) VALUES (?1, ?2, ?3, ?4)",
-                params![vid, stock, (price * 85) / 100, now],
-            )?;
-        }
+        conn.execute("INSERT OR IGNORE INTO parties (id, name, name_ur, party_type, phone, credit_limit_paisa, created_at) VALUES ('cust-walkin', 'Walk-in Customer', 'عام گاہک', 'customer', '03000000000', 0, ?1)", [&now])?;
+        conn.execute("INSERT OR IGNORE INTO price_lists (id, name, created_at) VALUES ('retail', 'Retail Price List', ?1)", [&now])?;
     }
+    Ok(())
+}
+
+fn seed_demo_catalog(conn: &Connection) -> Result<(), PosError> {
+    let now = Utc::now().to_rfc3339();
+    conn.execute("INSERT OR IGNORE INTO price_lists (id, name, created_at) VALUES ('retail', 'Retail Price List', ?1)", [&now])?;
+
+    let seed_products = [
+        ("prod-01", "var-001", "Tapal Danedar Tea 450g", "ٹپال دانے دار چائے ۴۵۰ گرام", "BEV-TEA-450", "8961014001018", "u-pkt", "cat-bev", 62000, 45000),
+        ("prod-02", "var-002", "Dalda Cooking Oil 1 Litre Pouch", "ڈالڈا کوکنگ آئل ۱ لٹر پاؤچ", "GRO-OIL-1L", "8961014002022", "u-pc", "cat-oil", 54000, 35000),
+        ("prod-03", "var-003", "Olper's Milk 1000ml", "اولپرز دودھ ۱۰۰۰ ملی لٹر", "DRY-MLK-1L", "8961014003036", "u-pc", "cat-dry", 29000, 80000),
+        ("prod-04", "var-004", "National Basmati Rice 5kg", "نیشنل باسمتی چاول ۵ کلو", "GRN-RCE-5K", "8961014004043", "u-pc", "cat-rice", 175000, 25000),
+        ("prod-05", "var-005", "Lux Beauty Soap 150g", "لکس بیوٹی صابن ۱۵۰ گرام", "SOAP-LUX-150", "8961014005050", "u-pc", "cat-soap", 15000, 100000),
+        ("prod-06", "var-006", "Shan Bombay Biryani Masala 50g", "شان بمبئی بریانی مصالحہ ۵۰ گرام", "SPC-BRY-50", "8961014006067", "u-pc", "cat-spc", 11000, 60000),
+    ];
+
+    for (pid, vid, name, name_ur, sku, barcode, unit_id, cat_id, price, stock) in seed_products {
+        conn.execute(
+            "INSERT OR REPLACE INTO products (id, sku, name, name_ur, category_id, base_unit_id, track_mode, active, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'batch', 1, ?7, ?7)",
+            params![pid, sku, name, name_ur, cat_id, unit_id, now],
+        )?;
+        conn.execute(
+            "INSERT OR REPLACE INTO product_variants (id, product_id, sku, is_default, attributes_json, created_at) VALUES (?1, ?2, ?3, 1, '{}', ?4)",
+            params![vid, pid, sku, now],
+        )?;
+        conn.execute(
+            "INSERT OR REPLACE INTO variant_units (id, variant_id, unit_id, factor_to_base, barcode, is_sale_unit, is_purchase_unit, created_at) VALUES (?1, ?2, ?3, 1000, ?4, 1, 1, ?5)",
+            params![format!("vu-{}", vid), vid, unit_id, barcode, now],
+        )?;
+        conn.execute(
+            "INSERT OR REPLACE INTO barcodes (id, variant_id, value, kind, created_at) VALUES (?1, ?2, ?3, 'manufacturer', ?4)",
+            params![format!("bc-{}", vid), vid, barcode, now],
+        )?;
+        conn.execute(
+            "INSERT OR REPLACE INTO prices (id, price_list_id, variant_id, unit_id, price_paisa, valid_from) VALUES (?1, 'retail', ?2, ?3, ?4, ?5)",
+            params![format!("prc-{}", vid), vid, unit_id, price, now],
+        )?;
+        conn.execute(
+            "INSERT OR REPLACE INTO inventory_balances (variant_id, on_hand_milli, avg_cost_paisa, last_rebuilt_at) VALUES (?1, ?2, ?3, ?4)",
+            params![vid, stock, (price * 85) / 100, now],
+        )?;
+    }
+
+    conn.execute(
+        "INSERT OR REPLACE INTO parties (id, name, name_ur, party_type, phone, credit_limit_paisa, created_at) VALUES ('cust-001', 'Haji Abdul Rehman (Kiryana)', 'حاجی عبدالرحمان کریانہ', 'customer', '03001234567', 10000000, ?1)",
+        [&now],
+    )?;
+
+    Ok(())
+}
+
+fn clear_to_fresh_account(conn: &Connection) -> Result<(), PosError> {
+    conn.execute("DELETE FROM sale_tenders", [])?;
+    conn.execute("DELETE FROM sale_lines", [])?;
+    conn.execute("DELETE FROM sales", [])?;
+    conn.execute("DELETE FROM return_lines", [])?;
+    conn.execute("DELETE FROM returns", [])?;
+    conn.execute("DELETE FROM cash_sessions", [])?;
+    conn.execute("DELETE FROM party_ledger", [])?;
+    conn.execute("DELETE FROM inventory_ledger", [])?;
+    conn.execute("DELETE FROM inventory_balances", [])?;
+    conn.execute("DELETE FROM sync_outbox", [])?;
+    conn.execute("DELETE FROM prices", [])?;
+    conn.execute("DELETE FROM barcodes", [])?;
+    conn.execute("DELETE FROM variant_units", [])?;
+    conn.execute("DELETE FROM product_variants", [])?;
+    conn.execute("DELETE FROM products", [])?;
+    conn.execute("DELETE FROM parties WHERE id != 'cust-walkin'", [])?;
     Ok(())
 }
 
@@ -147,30 +182,81 @@ fn get_system_status(state: State<'_, AppState>) -> Result<SystemStatus, String>
     })
 }
 
+#[derive(Deserialize)]
+pub struct FirstOwnerPayload {
+    pub username: String,
+    pub password: String,
+    pub pin: Option<String>,
+    pub shop_name: Option<String>,
+    pub shop_name_ur: Option<String>,
+    pub phone: Option<String>,
+    pub address: Option<String>,
+    pub account_type: Option<String>, // "demo" or "fresh"
+}
+
 #[tauri::command]
 fn setup_first_owner(
     state: State<'_, AppState>,
-    username: String,
-    password: String,
-    pin: Option<String>,
+    payload: FirstOwnerPayload,
 ) -> Result<UserSummary, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let user = UserRepo::create_user(
         &conn,
-        &username,
-        &password,
-        pin.as_deref(),
+        &payload.username,
+        &payload.password,
+        payload.pin.as_deref(),
         Role::Owner,
         None,
     ).map_err(|e| e.to_string())?;
 
-    // Auto login first owner
     let now = Utc::now();
-    let sess = UserRepo::login_password(&conn, &username, &password, &now).map_err(|e| e.to_string())?;
+    let shop_name = payload.shop_name.unwrap_or_else(|| "Next POS Store".into());
+    let settings = BusinessSettings {
+        id: "default".into(),
+        name: shop_name,
+        name_ur: payload.shop_name_ur,
+        address: payload.address,
+        phone: payload.phone,
+        ntn: None,
+        strn: None,
+        currency: "PKR".into(),
+        time_zone: "Asia/Karachi".into(),
+        tax_mode: "inclusive".into(),
+        negative_stock_policy: "Block".into(),
+        enabled_packs: vec!["grocery".into()],
+        fbr_enabled: false,
+        created_at: now,
+        updated_at: now,
+    };
+    let _ = SettingsRepo::save_or_update(&conn, &settings);
+
+    let is_demo = payload.account_type.as_deref() == Some("demo");
+    if is_demo {
+        let _ = seed_demo_catalog(&conn);
+    } else {
+        let _ = clear_to_fresh_account(&conn);
+    }
+
+    // Auto login first owner
+    let sess = UserRepo::login_password(&conn, &payload.username, &payload.password, &now).map_err(|e| e.to_string())?;
     let mut cur = state.current_user.lock().map_err(|e| e.to_string())?;
     *cur = Some(sess);
 
     Ok(user)
+}
+
+#[tauri::command]
+fn reset_store_account(
+    state: State<'_, AppState>,
+    account_type: String, // "demo" or "fresh"
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    if account_type == "demo" {
+        seed_demo_catalog(&conn).map_err(|e| e.to_string())?;
+    } else {
+        clear_to_fresh_account(&conn).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -538,7 +624,8 @@ fn main() {
             get_reports_summary,
             export_backup,
             restore_backup,
-            sync_to_cloud
+            sync_to_cloud,
+            reset_store_account
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

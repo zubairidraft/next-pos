@@ -8,7 +8,6 @@ import { PrinterSettingsModal } from "./PrinterSettingsModal";
 import { ShiftCloseModal } from "./ShiftCloseModal";
 import { SaleReturnsModal } from "./SaleReturnsModal";
 import {
-  Barcode,
   Plus,
   Minus,
   Trash2,
@@ -21,6 +20,9 @@ import {
   Receipt,
   Sun,
   Grid3X3,
+  Search,
+  X,
+  Package,
 } from "lucide-react";
 
 // Mock catalog item for immediate scanning & testing
@@ -103,32 +105,13 @@ export const CheckoutView: React.FC = () => {
 
   // State
   const [barcodeInput, setBarcodeInput] = useState("");
-  const [cartLines, setCartLines] = useState<CartLineItem[]>([
-    {
-      variant_id: "var-001",
-      product_name: "Tapal Danedar Tea 450g",
-      sku: "BEV-TEA-450",
-      barcode: "8961014001018",
-      unit_code: "PKT",
-      qty_milli: 2000, // 2 units
-      unit_price_paisa: 62000,
-      discount_paisa: 0,
-      tax_paisa: 0,
-      stock_on_hand_milli: 45000,
-    },
-    {
-      variant_id: "var-003",
-      product_name: "Olper's Milk 1000ml",
-      sku: "DRY-MLK-1L",
-      barcode: "8961014003036",
-      unit_code: "PC",
-      qty_milli: 1000, // 1 unit
-      unit_price_paisa: 29000,
-      discount_paisa: 0,
-      tax_paisa: 0,
-      stock_on_hand_milli: 80000,
-    },
-  ]);
+  const [cartLines, setCartLines] = useState<CartLineItem[]>([]);
+  const [searchResults, setSearchResults] = useState<ProductSearchResult[]>([]);
+  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
+  const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
+  const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
+  const [catalogItems, setCatalogItems] = useState<ProductSearchResult[]>([]);
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("all");
 
   const [orderDiscountPaisa, setOrderDiscountPaisa] = useState<number>(0);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -188,7 +171,97 @@ export const CheckoutView: React.FC = () => {
     barcodeInputRef.current?.focus();
   }, []);
 
-  // Global POS Keyboard listener (F2, F4, F8, F9, Space, Esc)
+  // Live debounced search as user types
+  useEffect(() => {
+    const q = barcodeInput.trim();
+    if (!q) {
+      setSearchResults([]);
+      setIsSearchDropdownOpen(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = await api.searchProducts(q);
+        if (results && results.length > 0) {
+          setSearchResults(results);
+          setIsSearchDropdownOpen(true);
+          setSelectedSearchIndex(0);
+          return;
+        }
+      } catch {
+        // Fallback to local sample matching
+      }
+
+      const qLower = q.toLowerCase();
+      const localMatches = SAMPLE_PRODUCTS.filter(
+        (p) =>
+          p.barcode.includes(q) ||
+          p.sku.toLowerCase().includes(qLower) ||
+          p.name.toLowerCase().includes(qLower) ||
+          p.name_ur.includes(q)
+      ).map((p) => ({
+        variant_id: p.id,
+        product_id: p.id,
+        name: p.name,
+        name_ur: p.name_ur,
+        sku: p.sku,
+        barcode: p.barcode,
+        base_unit_id: "u-pc",
+        base_unit_code: p.unit,
+        retail_price_paisa: p.retail_price_paisa,
+        stock_on_hand_milli: p.stock_milli,
+      }));
+
+      setSearchResults(localMatches);
+      setIsSearchDropdownOpen(localMatches.length > 0);
+      setSelectedSearchIndex(0);
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [barcodeInput]);
+
+  const openCatalogModal = async () => {
+    try {
+      const items = await api.searchProducts("");
+      if (items && items.length > 0) {
+        setCatalogItems(items);
+      } else {
+        setCatalogItems(
+          SAMPLE_PRODUCTS.map((p) => ({
+            variant_id: p.id,
+            product_id: p.id,
+            name: p.name,
+            name_ur: p.name_ur,
+            sku: p.sku,
+            barcode: p.barcode,
+            base_unit_id: "u-pc",
+            base_unit_code: p.unit,
+            retail_price_paisa: p.retail_price_paisa,
+            stock_on_hand_milli: p.stock_milli,
+          }))
+        );
+      }
+    } catch {
+      setCatalogItems(
+        SAMPLE_PRODUCTS.map((p) => ({
+          variant_id: p.id,
+          product_id: p.id,
+          name: p.name,
+          name_ur: p.name_ur,
+          sku: p.sku,
+          barcode: p.barcode,
+          base_unit_id: "u-pc",
+          base_unit_code: p.unit,
+          retail_price_paisa: p.retail_price_paisa,
+          stock_on_hand_milli: p.stock_milli,
+        }))
+      );
+    }
+    setIsCatalogModalOpen(true);
+  };
+
+  // Global POS Keyboard listener (F2, F3, F4, F8, F9, Space, Esc)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // If modal is active, let modal handle it
@@ -197,7 +270,8 @@ export const CheckoutView: React.FC = () => {
         isParkedModalOpen ||
         isPrinterOpen ||
         isShiftOpen ||
-        isReturnOpen
+        isReturnOpen ||
+        isCatalogModalOpen
       )
         return;
 
@@ -205,6 +279,9 @@ export const CheckoutView: React.FC = () => {
         e.preventDefault();
         barcodeInputRef.current?.focus();
         barcodeInputRef.current?.select();
+      } else if (e.key === "F3") {
+        e.preventDefault();
+        openCatalogModal();
       } else if (e.key === "F4") {
         e.preventDefault();
         handleParkCurrentCart();
@@ -218,7 +295,9 @@ export const CheckoutView: React.FC = () => {
         }
       } else if (e.key === "Escape") {
         e.preventDefault();
-        if (cartLines.length > 0) {
+        if (isSearchDropdownOpen) {
+          setIsSearchDropdownOpen(false);
+        } else if (cartLines.length > 0) {
           if (window.confirm("Clear active cart?")) {
             setCartLines([]);
           }
@@ -235,6 +314,8 @@ export const CheckoutView: React.FC = () => {
     isPrinterOpen,
     isShiftOpen,
     isReturnOpen,
+    isCatalogModalOpen,
+    isSearchDropdownOpen,
   ]);
 
   const formatPkr = (paisa: number) => `PKR ${(paisa / 100).toFixed(2)}`;
@@ -291,17 +372,31 @@ export const CheckoutView: React.FC = () => {
       }
     });
     setBarcodeInput("");
+    setIsSearchDropdownOpen(false);
     barcodeInputRef.current?.focus();
   };
 
   const addProductFromCatalog = (prod: ProductSearchResult) => {
+    const unitCode = prod.base_unit_code || prod.unit_code || "PC";
+    const unitId = prod.base_unit_id || prod.unit_id || "u-pc";
+    const stock = prod.stock_on_hand_milli ?? prod.stock_milli ?? 999000;
+
     setCartLines((prev) => {
       const existing = prev.find((l) => l.variant_id === prod.variant_id);
       if (existing) {
+        const nextQty = existing.qty_milli + 1000;
+        if (nextQty > stock) {
+          alert(`Cannot exceed available stock (${stock / 1000} ${unitCode})!`);
+          return prev;
+        }
         return prev.map((l) =>
-          l.variant_id === prod.variant_id ? { ...l, qty_milli: l.qty_milli + 1000 } : l
+          l.variant_id === prod.variant_id ? { ...l, qty_milli: nextQty } : l
         );
       } else {
+        if (stock < 1000) {
+          alert(`Item "${prod.name}" is out of stock! Negative stock blocked.`);
+          return prev;
+        }
         return [
           ...prev,
           {
@@ -309,18 +404,19 @@ export const CheckoutView: React.FC = () => {
             product_name: prod.name,
             sku: prod.sku,
             barcode: prod.barcode || "",
-            unit_code: prod.unit_code,
-            unit_id: prod.unit_id,
+            unit_code: unitCode,
+            unit_id: unitId,
             qty_milli: 1000,
             unit_price_paisa: prod.retail_price_paisa,
             discount_paisa: 0,
             tax_paisa: 0,
-            stock_on_hand_milli: prod.stock_milli,
+            stock_on_hand_milli: stock,
           },
         ];
       }
     });
     setBarcodeInput("");
+    setIsSearchDropdownOpen(false);
     barcodeInputRef.current?.focus();
   };
 
@@ -328,6 +424,11 @@ export const CheckoutView: React.FC = () => {
     e.preventDefault();
     const query = barcodeInput.trim();
     if (!query) return;
+
+    if (isSearchDropdownOpen && searchResults.length > 0) {
+      addProductFromCatalog(searchResults[selectedSearchIndex]);
+      return;
+    }
 
     try {
       const results = await api.searchProducts(query);
@@ -350,7 +451,7 @@ export const CheckoutView: React.FC = () => {
     if (match) {
       addProductToCart(match);
     } else {
-      alert(`No product matching barcode or SKU: "${query}"`);
+      alert(`No product matching barcode or name: "${query}"`);
     }
   };
 
@@ -517,24 +618,132 @@ export const CheckoutView: React.FC = () => {
       {/* Left Column: Barcode Scan, Cart Table, Quick Items */}
       <div className="flex-1 flex flex-col gap-4 min-w-0 bg-slate-900/60 border border-slate-800 rounded-2xl p-5 overflow-hidden">
         {/* Top Scan Bar & Customer Picker */}
-        <div className="flex flex-col sm:flex-row items-center gap-3">
-          <form onSubmit={handleBarcodeSubmit} className="relative flex-1 w-full">
-            <Barcode className="w-5 h-5 absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-400" />
-            <input
-              ref={barcodeInputRef}
-              type="text"
-              value={barcodeInput}
-              onChange={(e) => setBarcodeInput(e.target.value)}
-              placeholder={t("pos.scan_barcode")}
-              className="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 rounded-xl pl-11 pr-20 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 transition"
-            />
-            <button
-              type="submit"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold"
-            >
-              Enter
-            </button>
-          </form>
+        <div className="flex flex-col sm:flex-row items-center gap-3 relative z-30">
+          <div className="relative flex-1 w-full">
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 absolute left-3.5 text-emerald-400 pointer-events-none" />
+              <input
+                ref={barcodeInputRef}
+                type="text"
+                value={barcodeInput}
+                onChange={(e) => setBarcodeInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    if (searchResults.length > 0) {
+                      setIsSearchDropdownOpen(true);
+                      setSelectedSearchIndex((prev) => Math.min(prev + 1, searchResults.length - 1));
+                    }
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setSelectedSearchIndex((prev) => Math.max(prev - 1, 0));
+                  } else if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (isSearchDropdownOpen && searchResults.length > 0) {
+                      addProductFromCatalog(searchResults[selectedSearchIndex]);
+                    } else {
+                      handleBarcodeSubmit(e);
+                    }
+                  } else if (e.key === "Escape") {
+                    setIsSearchDropdownOpen(false);
+                  }
+                }}
+                onFocus={() => {
+                  if (searchResults.length > 0) {
+                    setIsSearchDropdownOpen(true);
+                  }
+                }}
+                placeholder="🔍 پروڈکٹ کا نام لکھیں یا بارکوڈ اسکین کریں (Search Name or Scan Barcode)..."
+                className="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 rounded-xl pl-10 pr-32 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 transition"
+              />
+              <div className="absolute right-1.5 flex items-center gap-1.5">
+                {barcodeInput && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBarcodeInput("");
+                      setIsSearchDropdownOpen(false);
+                      barcodeInputRef.current?.focus();
+                    }}
+                    className="p-1 text-slate-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={openCatalogModal}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1 border border-slate-700 transition"
+                  title="Browse All Products (F3) / تمام اشیاء"
+                >
+                  <Grid3X3 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>فہرست (F3)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Live Autocomplete Dropdown */}
+            {isSearchDropdownOpen && searchResults.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto divide-y divide-slate-800 animate-in fade-in slide-in-from-top-1">
+                <div className="px-3 py-1.5 bg-slate-950 text-[11px] text-slate-400 font-medium flex items-center justify-between border-b border-slate-800">
+                  <span>تلاش کے نتائج ({searchResults.length} اشیاء)</span>
+                  <span className="text-[10px] text-emerald-400">↑↓ تیر اور Enter سے سلیکٹ کریں</span>
+                </div>
+                {searchResults.map((item, idx) => {
+                  const isSelected = idx === selectedSearchIndex;
+                  const stock = item.stock_on_hand_milli ?? item.stock_milli ?? 0;
+                  const unit = item.base_unit_code || item.unit_code || "PC";
+                  const inStock = stock > 0;
+
+                  return (
+                    <div
+                      key={item.variant_id}
+                      onClick={() => addProductFromCatalog(item)}
+                      onMouseEnter={() => setSelectedSearchIndex(idx)}
+                      className={`px-4 py-2.5 flex items-center justify-between cursor-pointer transition ${
+                        isSelected ? "bg-emerald-600/20 border-l-4 border-emerald-500" : "hover:bg-slate-800/60"
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0 pr-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-white truncate">{item.name}</span>
+                          {item.name_ur && (
+                            <span className="text-xs text-emerald-400 font-urdu">{item.name_ur}</span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2 mt-0.5">
+                          <span>{item.sku}</span>
+                          {item.barcode && (
+                            <>
+                              <span>•</span>
+                              <span>{item.barcode}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            inStock
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                              : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                          }`}
+                        >
+                          {inStock ? `اسٹاک: ${stock / 1000} ${unit}` : "اسٹاک ختم"}
+                        </span>
+                        <div className="text-right">
+                          <span className="font-bold text-sm text-emerald-400">
+                            {formatPkr(item.retail_price_paisa)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {/* Customer Khata selector */}
           <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -666,9 +875,14 @@ export const CheckoutView: React.FC = () => {
               <tbody className="divide-y divide-slate-800/60 font-sans">
                 {cartLines.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-16 text-center text-slate-500">
-                      <ShoppingBag className="w-10 h-10 mx-auto mb-2 text-slate-600 stroke-[1.5]" />
-                      <p className="font-medium text-sm">{t("pos.empty_cart")}</p>
+                    <td colSpan={6} className="py-20 text-center text-slate-400">
+                      <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-emerald-400 shadow-inner">
+                        <ShoppingBag className="w-8 h-8" />
+                      </div>
+                      <p className="font-bold text-white text-base font-urdu">کاروبار پی او ایس - بل بنانے کے لیے تیار ہے</p>
+                      <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                        بل میں پروڈکٹ شامل کرنے کے لیے اوپر نام لکھیں، بارکوڈ اسکین کریں یا نیچے کوئیک بٹن پر کلک کریں۔
+                      </p>
                     </td>
                   </tr>
                 ) : (
@@ -925,6 +1139,116 @@ export const CheckoutView: React.FC = () => {
           setTimeout(() => setToastMessage(null), 5000);
         }}
       />
+
+      {/* Product Catalog Browser Modal (F3) */}
+      {isCatalogModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                  <Package className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">اشیاء کی فہرست / Product Catalog (F3)</h3>
+                  <p className="text-xs text-slate-400">کلک کریں اور فوری طور پر بل میں شامل کریں</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCatalogModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Category Filter Pills */}
+            <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center gap-2 overflow-x-auto">
+              {[
+                { id: "all", label: "تمام اشیاء (All)" },
+                { id: "cat-bev", label: "مشروبات اور چائے (Beverages)" },
+                { id: "cat-oil", label: "گھی اور آئل (Cooking Oil)" },
+                { id: "cat-dry", label: "ڈیری اور دودھ (Dairy)" },
+                { id: "cat-rice", label: "چاول اور دالیں (Grains)" },
+                { id: "cat-soap", label: "صابن اور شیمپو (Care)" },
+                { id: "cat-spc", label: "مصالحہ جات (Spices)" },
+              ].map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setSelectedCategoryFilter(c.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition ${
+                    selectedCategoryFilter === c.id
+                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-950"
+                      : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white"
+                  }`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Product Cards Grid */}
+            <div className="p-6 overflow-y-auto flex-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {catalogItems
+                .filter((item) => {
+                  if (selectedCategoryFilter === "all") return true;
+                  return item.category_id === selectedCategoryFilter;
+                })
+                .map((item) => {
+                  const stock = item.stock_on_hand_milli ?? item.stock_milli ?? 0;
+                  const unit = item.base_unit_code || item.unit_code || "PC";
+                  const inStock = stock > 0;
+
+                  return (
+                    <div
+                      key={item.variant_id}
+                      onClick={() => {
+                        addProductFromCatalog(item);
+                        setIsCatalogModalOpen(false);
+                      }}
+                      className="p-4 bg-slate-950/70 border border-slate-800 hover:border-emerald-500/60 rounded-xl flex flex-col justify-between cursor-pointer hover:bg-slate-800/40 transition group"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded">
+                            {item.sku}
+                          </span>
+                          <span
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                              inStock
+                                ? "bg-emerald-500/10 text-emerald-400"
+                                : "bg-rose-500/10 text-rose-400"
+                            }`}
+                          >
+                            {inStock ? `اسٹاک: ${stock / 1000} ${unit}` : "اسٹاک ختم"}
+                          </span>
+                        </div>
+                        <h4 className="font-bold text-white text-sm group-hover:text-emerald-400 transition">
+                          {item.name}
+                        </h4>
+                        {item.name_ur && (
+                          <p className="text-xs text-emerald-400 font-urdu mt-0.5">{item.name_ur}</p>
+                        )}
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+                        <span className="font-extrabold text-white text-sm">
+                          {formatPkr(item.retail_price_paisa)}
+                        </span>
+                        <span className="text-xs px-2.5 py-1 bg-emerald-600/20 text-emerald-300 group-hover:bg-emerald-600 group-hover:text-white rounded-lg font-semibold transition">
+                          + Add to Cart
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

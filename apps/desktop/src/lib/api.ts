@@ -46,10 +46,16 @@ export interface ProductSearchResult {
   name_ur: string | null;
   sku: string;
   barcode: string | null;
-  unit_id: string;
-  unit_code: string;
+  category_id?: string | null;
+  category_name?: string | null;
+  base_unit_id: string;
+  base_unit_code: string;
+  unit_id?: string;
+  unit_code?: string;
   retail_price_paisa: number;
-  stock_milli: number;
+  wholesale_price_paisa?: number | null;
+  stock_on_hand_milli: number;
+  stock_milli?: number;
 }
 
 export interface PostSaleLineInput {
@@ -159,8 +165,18 @@ async function callTauri<T>(cmd: string, args: Record<string, unknown> = {}): Pr
 
 export const api = {
   getSystemStatus: () => callTauri<SystemStatus>("get_system_status"),
-  setupFirstOwner: (username: string, password: string, pin?: string) =>
-    callTauri<UserSummary>("setup_first_owner", { username, password, pin: pin || null }),
+  setupFirstOwner: (payload: {
+    username: string;
+    password: string;
+    pin?: string | null;
+    shop_name?: string;
+    shop_name_ur?: string;
+    phone?: string;
+    address?: string;
+    account_type?: "demo" | "fresh";
+  }) => callTauri<UserSummary>("setup_first_owner", { payload }),
+  resetStoreAccount: (account_type: "demo" | "fresh") =>
+    callTauri<void>("reset_store_account", { account_type }),
   loginWithPassword: (username: string, password: string) =>
     callTauri<UserSession>("login_with_password", { username, password }),
   loginWithPin: (userId: string, pin: string) =>
