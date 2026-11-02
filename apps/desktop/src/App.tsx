@@ -284,8 +284,8 @@ function AppContent() {
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6">
+      {/* Main Content Area - Full Width */}
+      <main className="flex-1 w-full px-4 sm:px-6 py-3">
         {activeTab === "checkout" && <CheckoutView />}
 
         {activeTab === "catalog" && (

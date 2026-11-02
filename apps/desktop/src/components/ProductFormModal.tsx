@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { X, Sparkles, Box, DollarSign, Barcode as BarcodeIcon, Layers } from "lucide-react";
+import { X, Sparkles, Box, DollarSign, Barcode as BarcodeIcon, Layers, Plus } from "lucide-react";
 
 export interface ProductFormData {
   id?: string;
@@ -40,6 +40,21 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   units,
 }) => {
   const { t } = useTranslation();
+
+  const [localCategories, setLocalCategories] = useState(categories);
+  const [localBrands, setLocalBrands] = useState(brands);
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [isCreatingBrand, setIsCreatingBrand] = useState(false);
+  const [newBrandName, setNewBrandName] = useState("");
+
+  useEffect(() => {
+    setLocalCategories(categories);
+  }, [categories]);
+
+  useEffect(() => {
+    setLocalBrands(brands);
+  }, [brands]);
 
   const [formData, setFormData] = useState<ProductFormData>(() => {
     if (initialData) return initialData;
@@ -141,70 +156,140 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           </div>
 
-          {/* Row 2: Names (English & Urdu Nastaliq) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                {t("catalog.name_en_label")} *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g. Shan Bombay Biryani Masala 50g"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                {t("catalog.name_ur_label")}
-              </label>
-              <input
-                type="text"
-                dir="rtl"
-                value={formData.nameUr || ""}
-                onChange={(e) => setFormData({ ...formData, nameUr: e.target.value })}
-                placeholder="شان بمبئی بریانی مصالحہ ۵۰ گرام"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-nastaliq"
-              />
-            </div>
+          {/* Row 2: Product Name & Description */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Product Full Name *
+            </label>
+            <input
+              type="text"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="e.g. Shan Bombay Biryani Masala 50g"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+            />
           </div>
 
           {/* Row 3: Category, Brand & Base Unit */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Category Select or Create New */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                {t("catalog.category_label")}
-              </label>
-              <select
-                value={formData.categoryId}
-                onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-              >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  {t("catalog.category_label")}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingCategory(!isCreatingCategory)}
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-0.5 font-medium transition"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>{isCreatingCategory ? "Select" : "+ New"}</span>
+                </button>
+              </div>
+
+              {isCreatingCategory ? (
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    placeholder="New category name..."
+                    className="flex-1 bg-slate-950 border border-emerald-500/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const name = newCategoryName.trim();
+                      if (name) {
+                        const newCat = { id: `cat-${Date.now()}`, name };
+                        setLocalCategories((prev) => [...prev, newCat]);
+                        setFormData((prev) => ({ ...prev, categoryId: newCat.id }));
+                        setNewCategoryName("");
+                        setIsCreatingCategory(false);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold"
+                  >
+                    Add
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={formData.categoryId}
+                  onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  {localCategories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
+
+            {/* Brand Select or Create New */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                {t("catalog.brand_label")}
-              </label>
-              <select
-                value={formData.brandId}
-                onChange={(e) => setFormData({ ...formData, brandId: e.target.value })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-              >
-                {brands.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  {t("catalog.brand_label")}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingBrand(!isCreatingBrand)}
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-0.5 font-medium transition"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>{isCreatingBrand ? "Select" : "+ New"}</span>
+                </button>
+              </div>
+
+              {isCreatingBrand ? (
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={newBrandName}
+                    onChange={(e) => setNewBrandName(e.target.value)}
+                    placeholder="New brand name..."
+                    className="flex-1 bg-slate-950 border border-emerald-500/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const name = newBrandName.trim();
+                      if (name) {
+                        const newB = { id: `brand-${Date.now()}`, name };
+                        setLocalBrands((prev) => [...prev, newB]);
+                        setFormData((prev) => ({ ...prev, brandId: newB.id }));
+                        setNewBrandName("");
+                        setIsCreatingBrand(false);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold"
+                  >
+                    Add
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={formData.brandId}
+                  onChange={(e) => setFormData({ ...formData, brandId: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  {localBrands.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
+
+            {/* Base Unit */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 {t("catalog.base_unit_label")}

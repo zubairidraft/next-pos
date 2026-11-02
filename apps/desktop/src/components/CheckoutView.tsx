@@ -6,6 +6,7 @@ import { ParkedCartsModal } from "./ParkedCartsModal";
 import { PrinterSettingsModal } from "./PrinterSettingsModal";
 import { ShiftCloseModal } from "./ShiftCloseModal";
 import { SaleReturnsModal } from "./SaleReturnsModal";
+import { ReceiptModal } from "./ReceiptModal";
 import {
   Plus,
   Minus,
@@ -175,6 +176,11 @@ export const CheckoutView: React.FC = () => {
   ]);
 
   const [recentSale, setRecentSale] = useState<SaleSummary | null>(null);
+  const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+  const [completedSaleData, setCompletedSaleData] = useState<{
+    sale: SaleSummary;
+    lines: CartLineItem[];
+  } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [touchNumpadOpen, setTouchNumpadOpen] = useState(false);
 
@@ -317,7 +323,8 @@ export const CheckoutView: React.FC = () => {
         isShiftOpen ||
         isReturnOpen ||
         isCatalogModalOpen ||
-        isHelpOpen
+        isHelpOpen ||
+        isReceiptOpen
       ) {
         return;
       }
@@ -732,10 +739,15 @@ export const CheckoutView: React.FC = () => {
         occurred_at: new Date(completed.created_at).toLocaleTimeString(),
       };
 
+      setCompletedSaleData({
+        sale: summary,
+        lines: [...cartLines],
+      });
       setRecentSale(summary);
       setCartLines([]);
       setOrderDiscountPaisa(0);
       setIsPaymentOpen(false);
+      setIsReceiptOpen(true);
       showToast(`Sale Posted! ${completed.doc_no} (${formatPkr(completed.grand_total_paisa)})`);
     } catch (err: any) {
       console.warn("Real core post_sale failed or running in web fallback:", err);
@@ -755,10 +767,15 @@ export const CheckoutView: React.FC = () => {
         change_paisa: changePaisa,
         occurred_at: new Date().toLocaleTimeString(),
       };
+      setCompletedSaleData({
+        sale: summary,
+        lines: [...cartLines],
+      });
       setRecentSale(summary);
       setCartLines([]);
       setOrderDiscountPaisa(0);
       setIsPaymentOpen(false);
+      setIsReceiptOpen(true);
       showToast(`Sale Posted! ${docNo} (${formatPkr(grandTotalPaisa)})`);
     }
   };
@@ -790,7 +807,7 @@ export const CheckoutView: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 p-4 sm:p-6 h-[calc(100vh-115px)] overflow-hidden">
+    <div className="flex flex-col lg:flex-row gap-4 p-3 sm:p-4 w-full h-[calc(100vh-95px)] overflow-hidden">
       {/* Toast Alert */}
       {toastMessage && (
         <div className="fixed top-16 right-6 z-50 bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-emerald-400 text-sm font-semibold animate-in fade-in slide-in-from-top-2">
@@ -868,7 +885,7 @@ export const CheckoutView: React.FC = () => {
 
             {/* Live Autocomplete Dropdown */}
             {isSearchDropdownOpen && searchResults.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 animate-in fade-in slide-in-from-top-1">
+              <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 animate-in fade-in slide-in-from-top-1 min-w-full md:min-w-[550px]">
                 <div className="px-3 py-1.5 bg-slate-100 dark:bg-slate-950 text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
                   <span>Search Matches ({searchResults.length} products)</span>
                   <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">Use ↑↓ and Enter to select</span>
@@ -891,7 +908,7 @@ export const CheckoutView: React.FC = () => {
                       }`}
                     >
                       <div className="flex-1 min-w-0 pr-3">
-                        <div className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                        <div className="font-bold text-sm text-slate-900 dark:text-white leading-snug break-words">
                           {item.name}
                         </div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2 mt-0.5">
@@ -1038,23 +1055,23 @@ export const CheckoutView: React.FC = () => {
         )}
 
         {/* Cart Line Items Table with Keyboard Row Navigation */}
-        <div className="flex-1 bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800/80 rounded-xl overflow-hidden flex flex-col">
-          <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+        <div className="flex-1 bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800/80 rounded-xl overflow-hidden flex flex-col min-w-0">
+          <div className="overflow-y-auto overflow-x-hidden flex-1">
+            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 table-fixed">
               <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
                 <tr>
-                  <th className="py-2.5 px-3">#</th>
+                  <th className="py-2.5 px-2 w-8 text-center">#</th>
                   <th className="py-2.5 px-3">Item Description</th>
-                  <th className="py-2.5 px-3 text-right">Price</th>
-                  <th className="py-2.5 px-3 text-center">Qty (+ / -)</th>
-                  <th className="py-2.5 px-3 text-right">Total</th>
-                  <th className="py-2.5 px-2 text-center"></th>
+                  <th className="py-2.5 px-2 w-24 text-right">Price</th>
+                  <th className="py-2.5 px-2 w-28 text-center">Qty (+ / -)</th>
+                  <th className="py-2.5 px-2 w-24 text-right">Total</th>
+                  <th className="py-2.5 px-2 w-8 text-center"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60 font-sans">
                 {cartLines.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-20 text-center text-slate-400">
+                    <td colSpan={6} className="py-16 text-center text-slate-400">
                       <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-inner">
                         <ShoppingBag className="w-8 h-8" />
                       </div>
@@ -1082,28 +1099,33 @@ export const CheckoutView: React.FC = () => {
                             : "hover:bg-slate-100/70 dark:hover:bg-slate-800/30"
                         }`}
                       >
-                        <td className="py-2.5 px-3 text-slate-400 font-mono flex items-center gap-1">
-                          {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>}
-                          <span>{idx + 1}</span>
+                        <td className="py-2.5 px-2 text-center text-slate-400 font-mono text-[11px]">
+                          {isSelected ? (
+                            <span className="font-bold text-emerald-500">▶</span>
+                          ) : (
+                            <span>{idx + 1}</span>
+                          )}
                         </td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-900 dark:text-white text-xs">{line.product_name}</div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
+                        <td className="py-2.5 px-3 min-w-0">
+                          <div className="font-bold text-slate-900 dark:text-white text-xs truncate" title={line.product_name}>
+                            {line.product_name}
+                          </div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono flex items-center gap-1.5 mt-0.5 truncate">
                             <span>{line.sku}</span>
                             <span>•</span>
                             <span>{line.barcode}</span>
                             {isLowStock && (
-                              <span className="text-amber-600 dark:text-amber-400 text-[10px]">
+                              <span className="text-amber-600 dark:text-amber-400 font-semibold">
                                 (Stock: {line.stock_on_hand_milli / 1000})
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 text-right font-medium">
+                        <td className="py-2.5 px-2 text-right font-medium text-xs">
                           {formatPkr(line.unit_price_paisa)}
                         </td>
-                        <td className="py-2.5 px-3">
-                          <div className="flex items-center justify-center gap-1.5">
+                        <td className="py-2.5 px-2">
+                          <div className="flex items-center justify-center gap-1">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1114,8 +1136,8 @@ export const CheckoutView: React.FC = () => {
                             >
                               <Minus className="w-3 h-3" />
                             </button>
-                            <span className="font-bold text-slate-900 dark:text-white px-2 min-w-8 text-center">
-                              {line.qty_milli / 1000} {line.unit_code}
+                            <span className="font-bold text-slate-900 dark:text-white px-1 min-w-6 text-center text-xs">
+                              {line.qty_milli / 1000}
                             </span>
                             <button
                               onClick={(e) => {
@@ -1129,7 +1151,7 @@ export const CheckoutView: React.FC = () => {
                             </button>
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 text-right font-bold text-slate-900 dark:text-white">
+                        <td className="py-2.5 px-2 text-right font-bold text-slate-900 dark:text-white text-xs">
                           {formatPkr(lineTotal)}
                         </td>
                         <td className="py-2.5 px-2 text-center">
@@ -1320,6 +1342,17 @@ export const CheckoutView: React.FC = () => {
         customerId={selectedCustomerId}
         customerName={selectedCustomerName}
         onComplete={handleCompleteSale}
+      />
+
+      {/* Sale Receipt & Print Preview Modal (Opens automatically on sale completion) */}
+      <ReceiptModal
+        isOpen={isReceiptOpen}
+        onClose={() => {
+          setIsReceiptOpen(false);
+          barcodeInputRef.current?.focus();
+        }}
+        sale={completedSaleData?.sale || recentSale}
+        lines={completedSaleData?.lines || []}
       />
 
       {/* Held/Parked Carts Modal */}

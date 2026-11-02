@@ -140,6 +140,44 @@ export function ReportsView() {
     return `PKR ${(paisa / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  const handleExportReport = () => {
+    const csvRows: string[] = [];
+    csvRows.push("Next POS - Business Performance & Analytics Report");
+    csvRows.push(`Report Range,${dateRange.toUpperCase()}`);
+    csvRows.push(`Exported At,"${new Date().toLocaleString()}"`);
+    csvRows.push("");
+    csvRows.push("SUMMARY METRICS,AMOUNT (PKR)");
+    csvRows.push(`Gross Sales,${(summary.gross_sales_paisa / 100).toFixed(2)}`);
+    csvRows.push(`COGS (Cost of Goods Sold),${(summary.cogs_paisa / 100).toFixed(2)}`);
+    csvRows.push(`Order Discounts,${(summary.discounts_paisa / 100).toFixed(2)}`);
+    csvRows.push(`Net Sales,${(summary.net_sales_paisa / 100).toFixed(2)}`);
+    csvRows.push(`Gross Profit,${(summary.gross_profit_paisa / 100).toFixed(2)}`);
+    csvRows.push(`Gross Margin %,${summary.gross_margin_percent}%`);
+    csvRows.push(`Total Transactions,${summary.sales_count}`);
+    csvRows.push(`Average Ticket,${(summary.avg_ticket_paisa / 100).toFixed(2)}`);
+    csvRows.push("");
+    csvRows.push("TOP SELLING PRODUCTS,SKU,UNITS SOLD,REVENUE (PKR),PROFIT (PKR)");
+    topProducts.forEach((p) => {
+      csvRows.push(`"${p.name.replace(/"/g, '""')}",${p.sku},${p.qty},${(p.revenue / 100).toFixed(2)},${(p.profit / 100).toFixed(2)}`);
+    });
+    csvRows.push("");
+    csvRows.push("CATEGORY PERFORMANCE,QTY SOLD,REVENUE (PKR),PROFIT (PKR),MARGIN %");
+    categories.forEach((c) => {
+      csvRows.push(`"${c.name.replace(/"/g, '""')}",${c.qty_sold},${(c.revenue / 100).toFixed(2)},${(c.profit / 100).toFixed(2)},${c.margin}%`);
+    });
+
+    const blob = new Blob([csvRows.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    const dateStr = new Date().toISOString().split("T")[0];
+    link.setAttribute("download", `NextPOS_Analytics_Report_${dateRange}_${dateStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header with Title and Filters */}
@@ -183,11 +221,12 @@ export function ReportsView() {
           </div>
 
           <button
-            onClick={() => alert("Report exported to Excel/CSV successfully")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+            onClick={handleExportReport}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition"
+            title="Download CSV Spreadsheet"
           >
-            <Download className="w-3.5 h-3.5 text-emerald-400" />
-            Export
+            <Download className="w-3.5 h-3.5" />
+            <span>Export CSV</span>
           </button>
         </div>
       </div>
