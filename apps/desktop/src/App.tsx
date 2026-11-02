@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useTranslation } from "react-i18next";
-import { LanguageProvider, useAppLanguage } from "./context/LanguageContext";
+import { LanguageProvider } from "./context/LanguageContext";
+import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { PinLoginModal } from "./components/PinLoginModal";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { MasterDataView } from "./components/MasterDataView";
@@ -25,7 +25,6 @@ import {
   Coins,
   CheckCircle2,
   Boxes,
-  Languages,
   KeyRound,
   FolderTree,
   Wand2,
@@ -39,11 +38,12 @@ import {
   Key,
   Activity,
   MoreHorizontal,
+  Sun,
+  Moon,
 } from "lucide-react";
 
 function AppContent() {
-  const { t } = useTranslation();
-  const { language, toggleLanguage } = useAppLanguage();
+  const { theme, toggleTheme } = useTheme();
 
   const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "khata" | "reports" | "backup" | "packs" | "license" | "audit" | "master" | "dashboard" | "wizard">("checkout");
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
@@ -72,7 +72,7 @@ function AppContent() {
   }, []);
 
   const [status] = useState<SystemStatusDto>({
-    app_name: "Next POS (کاروبار پی او ایس)",
+    app_name: "Next POS",
     pos_core_version: "0.1.0",
     offline_ready: true,
     database: {
@@ -89,32 +89,32 @@ function AppContent() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Top Header Bar */}
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 py-3.5 flex items-center justify-between sticky top-0 z-40">
+      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/80 backdrop-blur px-6 py-3 flex items-center justify-between sticky top-0 z-40 shadow-sm dark:shadow-none">
         <div className="flex items-center gap-3">
-          <div className="bg-emerald-500/20 p-2 rounded-xl border border-emerald-500/30 text-emerald-400 shadow-sm shadow-emerald-950">
+          <div className="bg-emerald-500/10 dark:bg-emerald-500/20 p-2 rounded-xl border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 shadow-sm">
             <Boxes className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-              Next POS{" "}
-              <span className="text-emerald-400 text-sm font-nastaliq font-normal">
-                (کاروبار پی او ایس)
+            <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+              Next POS
+              <span className="text-xs px-2 py-0.5 rounded font-mono font-semibold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
+                PRO
               </span>
             </h1>
-            <p className="text-xs text-slate-400">{t("app.subtitle") || "Offline-First Retail POS & ERP"}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Offline-First Retail POS & ERP</p>
           </div>
         </div>
 
         {/* Center Nav Tabs */}
-        <nav className="flex items-center gap-1 bg-slate-950/70 p-1 rounded-xl border border-slate-800/80">
+        <nav className="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-950/70 p-1 rounded-xl border border-slate-300/80 dark:border-slate-800/80">
           <button
             onClick={() => { setActiveTab("checkout"); setIsMoreMenuOpen(false); }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
               activeTab === "checkout"
                 ? "bg-emerald-600 text-white shadow-sm shadow-emerald-950"
-                : "text-slate-400 hover:text-slate-200"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
             }`}
           >
             <ShoppingCart className="w-3.5 h-3.5" />
@@ -125,44 +125,44 @@ function AppContent() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
               activeTab === "catalog"
                 ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
             }`}
           >
             <Package className="w-3.5 h-3.5" />
-            <span>{language === "ur" ? "اشیاء" : "Catalog"}</span>
+            <span>Catalog</span>
           </button>
           <button
             onClick={() => { setActiveTab("khata"); setIsMoreMenuOpen(false); }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
               activeTab === "khata"
                 ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
             }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span>{language === "ur" ? "کھاتہ" : "Khata"}</span>
+            <span>Khata Ledger</span>
           </button>
           <button
             onClick={() => { setActiveTab("purchasing"); setIsMoreMenuOpen(false); }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
               activeTab === "purchasing"
                 ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
             }`}
           >
             <Truck className="w-3.5 h-3.5" />
-            <span>{language === "ur" ? "اسٹاک" : "Inventory"}</span>
+            <span>Inventory</span>
           </button>
           <button
             onClick={() => { setActiveTab("reports"); setIsMoreMenuOpen(false); }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
               activeTab === "reports"
                 ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
             }`}
           >
             <BarChart3 className="w-3.5 h-3.5" />
-            <span>{language === "ur" ? "رپورٹس" : "Reports"}</span>
+            <span>Reports</span>
           </button>
 
           {/* More Dropdown */}
@@ -171,56 +171,56 @@ function AppContent() {
               onClick={() => setIsMoreMenuOpen((v) => !v)}
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
                 ["backup", "packs", "license", "audit", "master", "wizard"].includes(activeTab)
-                  ? "bg-emerald-600/30 text-emerald-400 border border-emerald-500/30"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-emerald-600/30 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
               }`}
             >
               <MoreHorizontal className="w-3.5 h-3.5" />
-              <span>{language === "ur" ? "مزید" : "More"}</span>
+              <span>More</span>
             </button>
 
             {isMoreMenuOpen && (
-              <div className="absolute right-0 rtl:right-auto rtl:left-0 top-full mt-1.5 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
+              <div className="absolute right-0 top-full mt-1.5 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50">
                 <button
                   onClick={() => { setActiveTab("backup"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2"
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
                 >
-                  <HardDriveDownload className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Backup (بیک اپ)</span>
+                  <HardDriveDownload className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Cloud & Local Backup</span>
                 </button>
                 <button
                   onClick={() => { setActiveTab("license"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2"
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
                 >
-                  <Key className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>License (لائسنس)</span>
+                  <Key className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>License Management</span>
                 </button>
                 <button
                   onClick={() => { setActiveTab("packs"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2"
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
                 >
-                  <Boxes className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Industry Packs (انڈسٹری)</span>
+                  <Boxes className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Industry Packs</span>
                 </button>
                 <button
                   onClick={() => { setActiveTab("audit"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2"
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
                 >
-                  <ClipboardCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Stock Audit (اسٹاک چیک)</span>
+                  <ClipboardCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Stock Audit</span>
                 </button>
                 <button
                   onClick={() => { setActiveTab("master"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2"
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
                 >
-                  <FolderTree className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Master Data (ماسٹر ڈیٹا)</span>
+                  <FolderTree className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Master Data</span>
                 </button>
                 <button
                   onClick={() => { setActiveTab("wizard"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left rtl:text-right text-xs text-slate-300 hover:bg-slate-800 flex items-center gap-2 border-t border-slate-800"
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 border-t border-slate-200 dark:border-slate-800"
                 >
-                  <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+                  <Wand2 className="w-3.5 h-3.5 text-amber-500" />
                   <span>Setup Wizard</span>
                 </button>
               </div>
@@ -229,46 +229,55 @@ function AppContent() {
         </nav>
 
         {/* Right Action Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Offline status indicator */}
-          <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
             <WifiOff className="w-3.5 h-3.5" />
-            {t("status.offline_ready")}
+            Offline Ready
           </span>
+
+          {/* Theme Toggle Button (Light / Dark) */}
+          <button
+            onClick={toggleTheme}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition"
+            title={`Toggle Theme (Ctrl+T) - Current: ${theme === "dark" ? "Dark" : "Light"}`}
+          >
+            {theme === "dark" ? (
+              <>
+                <Sun className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden md:inline">Light</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-3.5 h-3.5 text-indigo-500" />
+                <span className="hidden md:inline">Dark</span>
+              </>
+            )}
+          </button>
 
           {/* Diagnostics Button */}
           <button
             onClick={() => setIsDiagnosticsOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition"
             title="System & Hardware Diagnostics"
           >
-            <Activity className="w-3.5 h-3.5 text-emerald-400" />
+            <Activity className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span className="hidden lg:inline">Health</span>
           </button>
 
-          {/* Language Switcher */}
-          <button
-            onClick={toggleLanguage}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
-            title="Switch Language / زبان تبدیل کریں"
-          >
-            <Languages className="w-3.5 h-3.5 text-emerald-400" />
-            <span>{language === "en" ? "اردو (Urdu)" : "English"}</span>
-          </button>
-
           {/* Cashier Badge & PIN Switch */}
-          <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+          <div className="flex items-center gap-2 pl-2 border-l border-slate-300 dark:border-slate-800">
             <div className="text-right hidden lg:block">
-              <div className="text-xs font-semibold text-white leading-none">{currentUser.name}</div>
-              <div className="text-[10px] text-emerald-400 font-medium capitalize mt-0.5">{currentUser.role}</div>
+              <div className="text-xs font-semibold text-slate-900 dark:text-white leading-none">{currentUser.name}</div>
+              <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium capitalize mt-0.5">{currentUser.role}</div>
             </div>
             <button
               onClick={() => setIsPinModalOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition"
               title="Quick Switch / Lock"
             >
-              <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">{t("nav.switch_user")}</span>
+              <KeyRound className="w-3.5 h-3.5 text-amber-500" />
+              <span className="hidden sm:inline">Switch</span>
             </button>
           </div>
         </div>
@@ -299,85 +308,85 @@ function AppContent() {
         {activeTab === "master" && <MasterDataView />}
 
         {activeTab === "wizard" && (
-          <FirstRunWizard onComplete={() => setActiveTab("catalog")} />
+          <FirstRunWizard onComplete={() => setActiveTab("checkout")} />
         )}
 
         {activeTab === "dashboard" && (
           <div className="flex flex-col gap-6">
             <div className="text-center mb-2">
-              <h2 className="text-2xl font-bold text-slate-100 mb-1">
-                {t("app.title")}
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-1">
+                Next POS System
               </h2>
-              <p className="text-xs text-slate-400">
-                Pure Rust <code className="text-emerald-400 font-mono">pos-core</code> engine • 50k Item Importer (&lt; 30s) • Dual Script Urdu & English
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Pure Rust <code className="text-emerald-600 dark:text-emerald-400 font-mono">pos-core</code> engine • 50k Item Importer (&lt; 30s) • Complete Offline Architecture
               </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Card 1: Core Engine */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between hover:border-slate-700 transition shadow-sm">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition shadow-sm">
                 <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Architecture</span>
-                  <Cpu className="w-5 h-5 text-indigo-400" />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Architecture</span>
+                  <Cpu className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
                 </div>
                 <div>
-                  <div className="text-xl font-bold text-white mb-1">pos-core v{status.pos_core_version}</div>
-                  <p className="text-xs text-slate-400">Decoupled pure Rust business logic & 50k item streaming engine</p>
+                  <div className="text-xl font-bold text-slate-900 dark:text-white mb-1">pos-core v{status.pos_core_version}</div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Decoupled pure Rust business logic & 50k item streaming engine</p>
                 </div>
-                <div className="mt-4 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Active Operator</span>
-                  <span className="text-emerald-400 font-mono font-medium">{currentUser.name}</span>
+                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">Active Operator</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-mono font-medium">{currentUser.name}</span>
                 </div>
               </div>
 
               {/* Card 2: Database & Storage */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between hover:border-slate-700 transition shadow-sm">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition shadow-sm">
                 <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Local Storage</span>
-                  <Database className="w-5 h-5 text-emerald-400" />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Local Storage</span>
+                  <Database className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <div>
-                  <div className="text-xl font-bold text-white mb-1">SQLite {status.database.journal_mode} Mode</div>
-                  <p className="text-xs text-slate-400">V2 Catalog Indexes active (sub-15ms lookups)</p>
+                  <div className="text-xl font-bold text-slate-900 dark:text-white mb-1">SQLite {status.database.journal_mode} Mode</div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">V2 Catalog Indexes active (sub-15ms lookups)</p>
                 </div>
-                <div className="mt-4 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Import Speed</span>
-                  <span className="text-emerald-400 font-medium font-mono">4,648 items/sec</span>
+                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">Import Speed</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium font-mono">4,648 items/sec</span>
                 </div>
               </div>
 
               {/* Card 3: Precision Money */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between hover:border-slate-700 transition shadow-sm">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition shadow-sm">
                 <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Money Engine</span>
-                  <Coins className="w-5 h-5 text-amber-400" />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Money Engine</span>
+                  <Coins className="w-5 h-5 text-amber-500 dark:text-amber-400" />
                 </div>
                 <div>
-                  <div className="text-xl font-bold text-white mb-1">{status.sample_currency.formatted}</div>
-                  <p className="text-xs text-slate-400">Integer Paisa: {status.sample_currency.paisa} (Zero Float)</p>
+                  <div className="text-xl font-bold text-slate-900 dark:text-white mb-1">{status.sample_currency.formatted}</div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Integer Paisa: {status.sample_currency.paisa} (Zero Float)</p>
                 </div>
-                <div className="mt-4 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Stock Policy</span>
-                  <span className="text-rose-400 font-semibold uppercase">Block Negative</span>
+                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">Stock Policy</span>
+                  <span className="text-rose-500 font-semibold uppercase">Block Negative</span>
                 </div>
               </div>
             </div>
 
             {/* Security & Integrity Box */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-indigo-400">
+                <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-indigo-600 dark:text-indigo-400">
                   <ShieldCheck className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-white text-sm">Phase 3 Catalog Engine Verified</h3>
-                  <p className="text-xs text-slate-400">
+                  <h3 className="font-semibold text-slate-900 dark:text-white text-sm">Phase 3 Catalog Engine Verified</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     High-speed catalog indexing, barcode scanner resolution, packaging unit conversions, and bulk Excel/CSV importer.
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   Sprint 3 Gates Met
                 </span>
@@ -388,8 +397,8 @@ function AppContent() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/60 px-6 py-3 text-center text-xs text-slate-500">
-        Next POS v0.1.0 • {t("footer.offline_notice")} • Built for Pakistani Retailers
+      <footer className="border-t border-slate-200 dark:border-slate-800/60 px-6 py-3 text-center text-xs text-slate-500">
+        Next POS v0.1.0 • Offline Ready • High Performance Retail POS
       </footer>
 
       {/* Fast PIN Switch Modal */}
@@ -418,8 +427,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <LanguageProvider>
-      <AppContent />
-    </LanguageProvider>
+    <ThemeProvider>
+      <LanguageProvider>
+        <AppContent />
+      </LanguageProvider>
+    </ThemeProvider>
   );
 }

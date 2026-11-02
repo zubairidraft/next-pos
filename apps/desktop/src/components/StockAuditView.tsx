@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useAppLanguage } from "../context/LanguageContext";
 import { LabelDesignerModal } from "./LabelDesignerModal";
 import {
   ClipboardCheck,
@@ -30,8 +29,6 @@ interface AuditLine {
 
 export const StockAuditView: React.FC = () => {
   const { t } = useTranslation();
-  const { direction } = useAppLanguage();
-  const isRtl = direction === "rtl";
 
   const [activeTab, setActiveTab] = useState<"session" | "history">("session");
   const [isSessionActive, setIsSessionActive] = useState(true);
@@ -268,15 +265,13 @@ export const StockAuditView: React.FC = () => {
         <div className="bg-slate-900/80 rounded-2xl border border-slate-800 overflow-hidden shadow-xl space-y-4 p-4">
           {/* Quick Scanner Barcode Input */}
           <div className="relative">
-            <Search className={`w-4 h-4 text-slate-500 absolute top-3 ${isRtl ? "right-3" : "left-3"}`} />
+            <Search className="w-4 h-4 text-slate-500 absolute top-3 left-3" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder={t("audit.scan_placeholder")}
-              className={`w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 font-mono ${
-                isRtl ? "pr-9 pl-4" : "pl-9 pr-4"
-              }`}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-9 pr-4 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
             />
           </div>
 

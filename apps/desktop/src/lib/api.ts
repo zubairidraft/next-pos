@@ -43,9 +43,10 @@ export interface ProductSearchResult {
   variant_id: string;
   product_id: string;
   name: string;
-  name_ur: string | null;
+  name_ur?: string | null;
   sku: string;
   barcode: string | null;
+  category?: string | null;
   category_id?: string | null;
   category_name?: string | null;
   base_unit_id: string;

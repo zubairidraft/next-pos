@@ -219,7 +219,7 @@ export const ShiftCloseModal: React.FC<ShiftCloseModalProps> = ({
           <div className="p-6 space-y-4">
             <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-2 font-mono text-xs text-slate-300">
               <div className="text-center font-bold text-sm text-white pb-1 border-b border-slate-800">
-                DAILY SHIFT Z-REPORT (روزانہ زیڈ رپورٹ)
+                DAILY SHIFT Z-REPORT
               </div>
               <div className="flex justify-between">
                 <span>Cashier:</span>

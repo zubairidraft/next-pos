@@ -121,9 +121,6 @@ export function BackupView() {
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Database className="w-5 h-5 text-emerald-400" />
             {t("backup.title") || "Database Protection & Encrypted Backup"}
-            <span className="text-sm font-nastaliq font-normal text-emerald-400">
-              (بیک اپ اور ڈیٹا سیکیورٹی)
-            </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             Automated 30-minute WAL live snapshots, 24-hour rolling retention, and AES encrypted USB export.
@@ -136,7 +133,7 @@ export function BackupView() {
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
           >
             <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
-            Snapshot Now (فوری کاپی)
+            Snapshot Now
           </button>
           <button
             onClick={handleExportBackup}
@@ -182,7 +179,7 @@ export function BackupView() {
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-lg shadow-emerald-950 transition active:scale-95 shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? "animate-spin" : ""}`} />
-            <span>{isSyncingCloud ? "Syncing..." : "Sync to Cloud Now (کلاؤڈ سنک کریں)"}</span>
+            <span>{isSyncingCloud ? "Syncing..." : "Sync to Cloud Now"}</span>
           </button>
         </div>
 
@@ -247,7 +244,7 @@ export function BackupView() {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <FileArchive className="w-4 h-4 text-emerald-400" />
-            Recent Snapshots on Disk (حالیہ محفوظ شدہ کاپیاں)
+            Recent Snapshots on Disk
           </h3>
           <span className="text-xs text-slate-400 font-mono">Location: ./snapshots/</span>
         </div>

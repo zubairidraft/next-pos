@@ -110,9 +110,6 @@ export function SystemDiagnosticsModal({ isOpen, onClose }: SystemDiagnosticsMod
             <div>
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 {t("diagnostics.title") || "Hardware & POS Engine Health Diagnostics"}
-                <span className="text-xs font-nastaliq font-normal text-emerald-400">
-                  (سسٹم و ہارڈویئر تشخیصی رپورٹ)
-                </span>
               </h3>
               <p className="text-xs text-slate-400">
                 Automated health inspection across database, disk headroom, thermal printer, and scanner.
@@ -146,7 +143,6 @@ export function SystemDiagnosticsModal({ isOpen, onClose }: SystemDiagnosticsMod
                 <div>
                   <div className="text-xs font-semibold text-white flex items-center gap-2">
                     {item.name}
-                    <span className="text-[10px] font-nastaliq text-slate-400">{item.name_ur}</span>
                   </div>
                   <div className="text-[11px] text-slate-400 mt-0.5 font-mono">{item.detail}</div>
                 </div>
@@ -165,7 +161,7 @@ export function SystemDiagnosticsModal({ isOpen, onClose }: SystemDiagnosticsMod
           <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <Barcode className="w-4 h-4 text-emerald-400" />
-              Live Scanner Hardware Verification (بارکوڈ اسکینر کی آزمائش)
+              Live Scanner Hardware Verification
             </span>
             <span className="text-[10px] text-slate-400">Aim scanner & scan any item</span>
           </label>

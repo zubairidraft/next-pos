@@ -123,9 +123,6 @@ export function IndustryPacksView() {
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Boxes className="w-5 h-5 text-emerald-400" />
             {t("packs.title") || "Industry Specialized Modules"}
-            <span className="text-sm font-nastaliq font-normal text-emerald-400">
-              (مخصوص انڈسٹری پیک اور ٹولز)
-            </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             Supermarket weighing scale barcodes, IMEI serial lifecycle tracking, and apparel matrix variants.
@@ -141,7 +138,7 @@ export function IndustryPacksView() {
             }`}
           >
             <Scale className="w-3.5 h-3.5" />
-            Grocery (پھل و سبزیاں)
+            Grocery & Produce
           </button>
           <button
             onClick={() => setActivePack("electronics")}
@@ -159,7 +156,7 @@ export function IndustryPacksView() {
             }`}
           >
             <Shirt className="w-3.5 h-3.5" />
-            Apparel (کپڑے / جوتے)
+            Apparel & Footwear
           </button>
         </div>
       </div>

@@ -192,7 +192,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           {/* Payment Method Selector */}
           <div>
             <label className="text-xs font-semibold text-slate-300 mb-2 block">
-              Payment Method / طریقۂ ادائیگی
+              Payment Method
             </label>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               <button

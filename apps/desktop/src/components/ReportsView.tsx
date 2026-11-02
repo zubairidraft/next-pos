@@ -148,9 +148,6 @@ export function ReportsView() {
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-emerald-400" />
             {t("reports.title") || "Business Analytics & Performance"}
-            <span className="text-sm font-nastaliq font-normal text-emerald-400">
-              (کاروباری رپورٹ اور منافع)
-            </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             Real-time financial summary, COGS, gross margin, category performance, and velocity ranking.
@@ -165,7 +162,7 @@ export function ReportsView() {
                 dateRange === "today" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-white"
               }`}
             >
-              Today (آج)
+              Today
             </button>
             <button
               onClick={() => setDateRange("week")}
@@ -173,7 +170,7 @@ export function ReportsView() {
                 dateRange === "week" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-white"
               }`}
             >
-              This Week (اس ہفتے)
+              This Week
             </button>
             <button
               onClick={() => setDateRange("month")}
@@ -181,7 +178,7 @@ export function ReportsView() {
                 dateRange === "month" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-white"
               }`}
             >
-              This Month (اس ماہ)
+              This Month
             </button>
           </div>
 
@@ -200,7 +197,7 @@ export function ReportsView() {
         {/* Card 1: Gross Sales */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Gross Sales (کل فروخت)</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Gross Sales</span>
             <DollarSign className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="text-xl font-bold text-white">{formatPkr(summary.gross_sales_paisa)}</div>
@@ -213,7 +210,7 @@ export function ReportsView() {
         {/* Card 2: Cost of Goods Sold */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">COGS (لاگت مال)</span>
+            <span className="text-xs font-medium uppercase tracking-wider">COGS</span>
             <Receipt className="w-4 h-4 text-amber-400" />
           </div>
           <div className="text-xl font-bold text-white">{formatPkr(summary.cogs_paisa)}</div>
@@ -225,7 +222,7 @@ export function ReportsView() {
         {/* Card 3: Gross Profit & Margin */}
         <div className="bg-slate-900 border border-emerald-900/50 bg-gradient-to-br from-slate-900 to-emerald-950/20 rounded-xl p-4">
           <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider text-emerald-400">Gross Profit (خالص منافع)</span>
+            <span className="text-xs font-medium uppercase tracking-wider text-emerald-400">Gross Profit</span>
             <ArrowUpRight className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="text-xl font-bold text-emerald-400">{formatPkr(summary.gross_profit_paisa)}</div>
@@ -237,7 +234,7 @@ export function ReportsView() {
         {/* Card 4: Orders & Average Ticket */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Sales Velocity (آرڈرز)</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Sales Velocity</span>
             <ShoppingBag className="w-4 h-4 text-sky-400" />
           </div>
           <div className="text-xl font-bold text-white">{summary.sales_count} Transactions</div>
@@ -254,7 +251,7 @@ export function ReportsView() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <PieChart className="w-4 h-4 text-emerald-400" />
-              Category Performance (کیٹیگری کارکردگی)
+              Category Performance
             </h3>
             <span className="text-xs text-slate-400 font-mono">By Revenue</span>
           </div>
@@ -299,7 +296,7 @@ export function ReportsView() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <ShoppingBag className="w-4 h-4 text-sky-400" />
-              Top Selling Products (سب سے زیادہ بکنے والے آئٹمز)
+              Top Selling Products
             </h3>
             <span className="text-xs text-slate-400 font-mono">Top 5</span>
           </div>
@@ -321,7 +318,6 @@ export function ReportsView() {
                       <div className="font-medium text-white">{p.name}</div>
                       <div className="flex items-center gap-2 text-[10px] text-slate-400">
                         <span className="font-mono text-emerald-400">{p.sku}</span>
-                        <span className="font-nastaliq">{p.name_ur}</span>
                       </div>
                     </td>
                     <td className="py-2.5 text-right text-slate-300 font-mono">{p.qty}</td>
@@ -343,18 +339,18 @@ export function ReportsView() {
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
         <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
           <Calendar className="w-4 h-4 text-emerald-400" />
-          Payment Tender Breakdown (ادائیگی کے ذرائع)
+          Payment Tender Breakdown
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           <div className="bg-slate-950 p-3.5 rounded-lg border border-slate-800">
-            <div className="text-xs text-slate-400">Cash Payments (نقد ادائیگی)</div>
+            <div className="text-xs text-slate-400">Cash Payments</div>
             <div className="text-lg font-bold text-emerald-400 mt-1 font-mono">
               {formatPkr(summary.cash_tendered_paisa)}
             </div>
             <div className="text-[10px] text-slate-500 mt-0.5">80.8% of collections</div>
           </div>
           <div className="bg-slate-950 p-3.5 rounded-lg border border-slate-800">
-            <div className="text-xs text-slate-400">Khata / Credit (کھاتہ ادھار)</div>
+            <div className="text-xs text-slate-400">Khata / Credit</div>
             <div className="text-lg font-bold text-amber-400 mt-1 font-mono">
               {formatPkr(summary.khata_tendered_paisa)}
             </div>

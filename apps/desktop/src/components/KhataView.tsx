@@ -130,13 +130,9 @@ export const KhataView: React.FC = () => {
       ? digits
       : `92${digits}`;
 
-    const msg = `محترم ${party.name} صاحب،\nالمدینہ سپر اسٹور کی طرف سے آپ کے کھاتے کا بقایا بیلنس ${formatPkr(
+    const msg = `Dear ${party.name},\nyour outstanding Khata balance is ${formatPkr(
       party.balance_paisa
-    )} ہے۔ برائے مہربانی ادائیگی یقینی بنائیں۔ شکریہ!\n\nDear ${
-      party.name
-    },\nyour outstanding Khata balance with Al-Madina Superstore is ${formatPkr(
-      party.balance_paisa
-    )}. Kindly arrange payment. Thank you!`;
+    )}. Kindly arrange payment at your earliest convenience. Thank you!`;
 
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank");
@@ -186,9 +182,6 @@ export const KhataView: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <span>{t("khata.title")}</span>
-            <span className="text-emerald-400 font-nastaliq text-base font-normal">
-              (کھاتہ لیجر و ادھار بک)
-            </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">{t("khata.subtitle")}</p>
         </div>
@@ -231,9 +224,6 @@ export const KhataView: React.FC = () => {
           <div className="text-2xl font-black text-emerald-400 mt-2">
             {formatPkr(totalReceivables)}
           </div>
-          <div className="text-[11px] text-slate-400 mt-1 font-nastaliq">
-            کل واجب الوصول: {formatPkr(totalReceivables)}
-          </div>
         </div>
 
         {/* Card 2: Payables */}
@@ -244,9 +234,6 @@ export const KhataView: React.FC = () => {
           </div>
           <div className="text-2xl font-black text-indigo-300 mt-2">
             {formatPkr(totalPayables)}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1 font-nastaliq">
-            کل واجب الادا: {formatPkr(totalPayables)}
           </div>
         </div>
 
@@ -423,7 +410,6 @@ export const KhataView: React.FC = () => {
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <span>{t("khata.receive_payment")}</span>
-                  <span className="text-emerald-400 font-nastaliq text-sm">(رقم وصول کریں)</span>
                 </h3>
                 <p className="text-xs text-slate-400">{selectedParty.name}</p>
               </div>
@@ -467,12 +453,12 @@ export const KhataView: React.FC = () => {
                   onChange={(e) => setPaymentMethod(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="cash">Cash (کیش نقد)</option>
-                  <option value="bank">Bank Transfer (بینک ٹرانسفر)</option>
-                  <option value="jazzcash">JazzCash (جاز کیش)</option>
-                  <option value="easypaisa">EasyPaisa (ایزی پیسہ)</option>
-                  <option value="raast">Raast Instant (راست)</option>
-                  <option value="cheque">Cheque (بینک چیک)</option>
+                  <option value="cash">Cash</option>
+                  <option value="bank">Bank Transfer</option>
+                  <option value="jazzcash">JazzCash</option>
+                  <option value="easypaisa">EasyPaisa</option>
+                  <option value="raast">Raast Instant</option>
+                  <option value="cheque">Bank Cheque</option>
                 </select>
               </div>
 
@@ -516,7 +502,6 @@ export const KhataView: React.FC = () => {
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <span>Khata Account Statement</span>
-                  <span className="text-emerald-400 font-nastaliq text-sm">(کھاتہ تفصیل)</span>
                 </h3>
                 <p className="text-xs text-slate-400">
                   {selectedParty.name} • {selectedParty.phone}

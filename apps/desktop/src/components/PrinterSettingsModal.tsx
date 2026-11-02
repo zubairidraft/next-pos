@@ -183,7 +183,7 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
           {/* Hardware Diagnostic Actions */}
           <div>
             <label className="text-xs font-semibold text-slate-300 mb-2 block">
-              Hardware Actions / ٹیسٹ پرنٹ و دراز
+              Hardware Actions
             </label>
             <div className="grid grid-cols-3 gap-2">
               <button
