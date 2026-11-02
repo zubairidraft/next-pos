@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { LanguageProvider } from "./context/LanguageContext";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
+import { Agentation } from "agentation";
 import { PinLoginModal } from "./components/PinLoginModal";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { MasterDataView } from "./components/MasterDataView";
@@ -430,6 +431,12 @@ export default function App() {
     <ThemeProvider>
       <LanguageProvider>
         <AppContent />
+        {import.meta.env.DEV && (
+          <Agentation
+            endpoint="http://localhost:4747"
+            appName="Next POS"
+          />
+        )}
       </LanguageProvider>
     </ThemeProvider>
   );
