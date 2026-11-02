@@ -33,7 +33,7 @@ export const LabelDesignerModal: React.FC<LabelDesignerModalProps> = ({
     initialItem?.name || "Shan Bombay Biryani Masala 50g"
   );
   const [itemNameUr, setItemNameUr] = useState(
-    initialItem?.name_ur || "شان بمبئی بریانی مصالحہ"
+    initialItem?.name_ur || "Shan Bombay Biryani Masala 50g"
   );
   const [barcode, setBarcode] = useState(initialItem?.barcode || "8964000101112");
   const [pricePkr, setPricePkr] = useState(
@@ -108,7 +108,7 @@ export const LabelDesignerModal: React.FC<LabelDesignerModalProps> = ({
             {/* Size Selector */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Sticker Size (مائز)
+                Sticker Dimensions
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <button
@@ -142,7 +142,7 @@ export const LabelDesignerModal: React.FC<LabelDesignerModalProps> = ({
             {/* Store Name Header */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">
-                {t("labels.store_header")}
+                Store Header Title
               </label>
               <input
                 type="text"
@@ -155,7 +155,7 @@ export const LabelDesignerModal: React.FC<LabelDesignerModalProps> = ({
             {/* Item Name */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">
-                {t("labels.product_item")} (English)
+                Product Name
               </label>
               <input
                 type="text"
@@ -165,10 +165,10 @@ export const LabelDesignerModal: React.FC<LabelDesignerModalProps> = ({
               />
             </div>
 
-            {/* Urdu Name */}
+            {/* Secondary Product Label / Subtitle */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">
-                Product Name (اردو نام)
+                Secondary Product Title / Subtitle
               </label>
               <input
                 type="text"

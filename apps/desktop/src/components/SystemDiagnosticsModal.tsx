@@ -37,7 +37,7 @@ export function SystemDiagnosticsModal({ isOpen, onClose }: SystemDiagnosticsMod
     {
       id: "diag-db",
       name: "SQLite Database Integrity",
-      name_ur: "ڈیٹا بیس کی ساخت اور سلامتی",
+      name_ur: "Database Integrity & WAL Check",
       category: "db",
       status: "pass",
       detail: "PRAGMA quick_check: ok • WAL mode active • 0 orphaned rows",
@@ -45,7 +45,7 @@ export function SystemDiagnosticsModal({ isOpen, onClose }: SystemDiagnosticsMod
     {
       id: "diag-disk",
       name: "Local Storage & Disk Headroom",
-      name_ur: "لوکل ڈسک اور خالی جگہ",
+      name_ur: "Disk Storage Space & Headroom",
       category: "disk",
       status: "pass",
       detail: "Drive D: 142.6 GB free (Well above 2 GB minimum threshold)",
@@ -53,15 +53,15 @@ export function SystemDiagnosticsModal({ isOpen, onClose }: SystemDiagnosticsMod
     {
       id: "diag-printer",
       name: "Thermal Receipt Printer (ESC/POS)",
-      name_ur: "تھرمل رسید پرنٹر رابطہ",
+      name_ur: "Thermal Receipt Printer Interface",
       category: "printer",
       status: "pass",
-      detail: "USB Direct / COM1 ready • 80mm Wide Roll • 1-bit Urdu Raster OK",
+      detail: "USB Direct / COM1 ready • 80mm Wide Roll • ESC/POS Native",
     },
     {
       id: "diag-scanner",
       name: "USB Barcode Scanner Interface",
-      name_ur: "یو ایس بی بارکوڈ اسکینر",
+      name_ur: "USB Barcode Scanner Interface",
       category: "scanner",
       status: "pass",
       detail: "HID Keyboard emulation ready • Fast buffer response < 10ms",
@@ -69,7 +69,7 @@ export function SystemDiagnosticsModal({ isOpen, onClose }: SystemDiagnosticsMod
     {
       id: "diag-clock",
       name: "System RTC Clock Synchronization",
-      name_ur: "کمپیوٹر گھڑی اور ٹائم زون",
+      name_ur: "System Clock Synchronization",
       category: "clock",
       status: "pass",
       detail: "Timezone: Asia/Karachi (PKT UTC+5) • Monotonic clock verified",

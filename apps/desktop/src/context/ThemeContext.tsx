@@ -9,7 +9,7 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-  theme: "dark",
+  theme: "light",
   toggleTheme: () => {},
   setTheme: () => {},
 });
@@ -20,17 +20,25 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const saved = localStorage.getItem("nextpos_theme");
       if (saved === "light" || saved === "dark") return saved;
     } catch (e) {}
-    return "dark";
+    // Default to light theme
+    return "light";
   });
 
   const applyTheme = (t: Theme) => {
     const root = document.documentElement;
+    const body = document.body;
     if (t === "dark") {
       root.classList.add("dark");
       root.classList.remove("light");
+      body?.classList.add("dark");
+      body?.classList.remove("light");
+      root.style.colorScheme = "dark";
     } else {
       root.classList.add("light");
       root.classList.remove("dark");
+      body?.classList.add("light");
+      body?.classList.remove("dark");
+      root.style.colorScheme = "light";
     }
   };
 

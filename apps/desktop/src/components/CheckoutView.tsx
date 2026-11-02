@@ -9,12 +9,11 @@ import { SaleReturnsModal } from "./SaleReturnsModal";
 import { ReceiptModal } from "./ReceiptModal";
 import { useTheme } from "../context/ThemeContext";
 import {
-  Plus,
-  Minus,
   Trash2,
   Clock,
   CheckCircle2,
   User,
+  UserPlus,
   ShoppingBag,
   RotateCcw,
   Printer,
@@ -27,6 +26,7 @@ import {
   Keyboard,
   Sun,
   Moon,
+  AlertTriangle,
 } from "lucide-react";
 
 // Catalog items for immediate scanning, offline fallback, and testing
@@ -39,6 +39,7 @@ interface QuickProduct {
   category: string;
   category_id?: string;
   retail_price_paisa: number;
+  wholesale_price_paisa: number;
   stock_milli: number;
 }
 
@@ -52,6 +53,7 @@ const SAMPLE_PRODUCTS: QuickProduct[] = [
     category: "Beverages",
     category_id: "cat-bev",
     retail_price_paisa: 62000, // PKR 620.00
+    wholesale_price_paisa: 56000, // Wholesale minimum PKR 560.00
     stock_milli: 45000, // 45 units
   },
   {
@@ -63,6 +65,7 @@ const SAMPLE_PRODUCTS: QuickProduct[] = [
     category: "Cooking Oil",
     category_id: "cat-oil",
     retail_price_paisa: 54000, // PKR 540.00
+    wholesale_price_paisa: 49000, // Wholesale minimum PKR 490.00
     stock_milli: 32000,
   },
   {
@@ -74,6 +77,7 @@ const SAMPLE_PRODUCTS: QuickProduct[] = [
     category: "Dairy",
     category_id: "cat-dry",
     retail_price_paisa: 29000, // PKR 290.00
+    wholesale_price_paisa: 26000, // Wholesale minimum PKR 260.00
     stock_milli: 80000,
   },
   {
@@ -85,6 +89,7 @@ const SAMPLE_PRODUCTS: QuickProduct[] = [
     category: "Grains",
     category_id: "cat-rice",
     retail_price_paisa: 175000, // PKR 1,750.00
+    wholesale_price_paisa: 155000, // Wholesale minimum PKR 1550.00
     stock_milli: 25000,
   },
   {
@@ -96,6 +101,7 @@ const SAMPLE_PRODUCTS: QuickProduct[] = [
     category: "Personal Care",
     category_id: "cat-soap",
     retail_price_paisa: 15000, // PKR 150.00
+    wholesale_price_paisa: 13000, // Wholesale minimum PKR 130.00
     stock_milli: 120000,
   },
   {
@@ -107,6 +113,7 @@ const SAMPLE_PRODUCTS: QuickProduct[] = [
     category: "Spices",
     category_id: "cat-spc",
     retail_price_paisa: 11000, // PKR 110.00
+    wholesale_price_paisa: 9500, // Wholesale minimum PKR 95.00
     stock_milli: 150000,
   },
 ];
@@ -124,6 +131,7 @@ export const CheckoutView: React.FC = () => {
       unit_code: "PKT",
       qty_milli: 2000,
       unit_price_paisa: 62000,
+      wholesale_price_paisa: 56000,
       discount_paisa: 0,
       tax_paisa: 0,
       stock_on_hand_milli: 45000,
@@ -136,12 +144,25 @@ export const CheckoutView: React.FC = () => {
       unit_code: "PC",
       qty_milli: 1000,
       unit_price_paisa: 29000,
+      wholesale_price_paisa: 26000,
       discount_paisa: 0,
       tax_paisa: 0,
       stock_on_hand_milli: 80000,
     },
   ]);
   const [selectedCartIndex, setSelectedCartIndex] = useState<number>(0);
+  const [priceErrorToast, setPriceErrorToast] = useState<string | null>(null);
+
+  // Customer Management
+  const [customers, setCustomers] = useState([
+    { id: "", name: "Walk-in Customer", phone: "", credit_limit_paisa: 0 },
+    { id: "cust-01", name: "Haji Muhammad Aslam (Khata #102)", phone: "0300-1234567", credit_limit_paisa: 5000000 },
+    { id: "cust-02", name: "Chaudhry Traders & Mart", phone: "0321-7654321", credit_limit_paisa: 8000000 },
+  ]);
+  const [isNewCustomerModalOpen, setIsNewCustomerModalOpen] = useState(false);
+  const [newCustName, setNewCustName] = useState("");
+  const [newCustPhone, setNewCustPhone] = useState("");
+  const [newCustLimit, setNewCustLimit] = useState("25000");
 
   // Search and Catalog modal states
   const [searchResults, setSearchResults] = useState<ProductSearchResult[]>([]);
@@ -191,6 +212,31 @@ export const CheckoutView: React.FC = () => {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const discountInputRef = useRef<HTMLInputElement>(null);
   const catalogSearchInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAddNewCustomer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustName.trim()) {
+      alert("Customer name is required.");
+      return;
+    }
+    const newId = `cust-${Date.now()}`;
+    const limitPaisa = Math.round((parseFloat(newCustLimit) || 0) * 100);
+    const newCustomer = {
+      id: newId,
+      name: newCustName.trim(),
+      phone: newCustPhone.trim(),
+      credit_limit_paisa: limitPaisa,
+    };
+    setCustomers((prev) => [...prev, newCustomer]);
+    setSelectedCustomerId(newId);
+    setSelectedCustomerName(newCustomer.name);
+    setIsNewCustomerModalOpen(false);
+    setNewCustName("");
+    setNewCustPhone("");
+    setNewCustLimit("25000");
+    setToastMessage(`Customer "${newCustomer.name}" created and assigned to cart.`);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   // Focus barcode input on mount
   useEffect(() => {
@@ -536,6 +582,7 @@ export const CheckoutView: React.FC = () => {
           unit_code: prod.unit,
           qty_milli: 1000,
           unit_price_paisa: prod.retail_price_paisa,
+          wholesale_price_paisa: prod.wholesale_price_paisa || Math.round(prod.retail_price_paisa * 0.85),
           discount_paisa: 0,
           tax_paisa: 0,
           stock_on_hand_milli: prod.stock_milli,
@@ -554,6 +601,7 @@ export const CheckoutView: React.FC = () => {
     const unitCode = prod.base_unit_code || prod.unit_code || "PC";
     const unitId = prod.base_unit_id || prod.unit_id || "u-pc";
     const stock = prod.stock_on_hand_milli ?? prod.stock_milli ?? 999000;
+    const wholesalePrice = prod.wholesale_price_paisa ?? Math.round(prod.retail_price_paisa * 0.85);
 
     setCartLines((prev) => {
       const idx = prev.findIndex((l) => l.variant_id === prod.variant_id);
@@ -581,6 +629,7 @@ export const CheckoutView: React.FC = () => {
           unit_id: unitId,
           qty_milli: 1000,
           unit_price_paisa: prod.retail_price_paisa,
+          wholesale_price_paisa: wholesalePrice,
           discount_paisa: 0,
           tax_paisa: 0,
           stock_on_hand_milli: stock,
@@ -628,6 +677,45 @@ export const CheckoutView: React.FC = () => {
     } else {
       alert(`No product matching barcode or SKU: "${query}"`);
     }
+  };
+
+  const updateLinePrice = (variantId: string, newPricePaisa: number) => {
+    const line = cartLines.find((l) => l.variant_id === variantId);
+    if (!line) return;
+
+    const wholesaleFloor =
+      line.wholesale_price_paisa && line.wholesale_price_paisa > 0
+        ? line.wholesale_price_paisa
+        : Math.round(line.unit_price_paisa * 0.85);
+
+    if (newPricePaisa < wholesaleFloor) {
+      setPriceErrorToast("Product cannot be sold under wholesale price");
+      setTimeout(() => setPriceErrorToast(null), 3500);
+      return;
+    }
+
+    setCartLines((prev) =>
+      prev.map((l) => (l.variant_id === variantId ? { ...l, unit_price_paisa: newPricePaisa } : l))
+    );
+  };
+
+  const setLineExactQty = (variantId: string, qtyMilli: number) => {
+    if (qtyMilli <= 0) {
+      removeLine(variantId);
+      return;
+    }
+    setCartLines((prev) =>
+      prev.map((line) => {
+        if (line.variant_id === variantId) {
+          if (qtyMilli > line.stock_on_hand_milli) {
+            alert(`Cannot exceed available stock (${line.stock_on_hand_milli / 1000} ${line.unit_code})!`);
+            return line;
+          }
+          return { ...line, qty_milli: qtyMilli };
+        }
+        return line;
+      })
+    );
   };
 
   const updateLineQty = (variantId: string, deltaMilli: number) => {
@@ -949,32 +1037,42 @@ export const CheckoutView: React.FC = () => {
             )}
           </div>
 
-          {/* Customer Selector & Hardware Controls */}
+          {/* Customer Selector & Quick Customer Creation */}
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-700 dark:text-slate-300">
-              <User className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
+            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300">
+              <User className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <select
                 value={selectedCustomerId || ""}
                 onChange={(e) => {
                   const val = e.target.value;
-                  if (val === "cust-01") {
-                    setSelectedCustomerId("cust-01");
-                    setSelectedCustomerName("Haji Muhammad Aslam (Khata #102)");
+                  const found = customers.find((c) => c.id === val);
+                  if (found && found.id) {
+                    setSelectedCustomerId(found.id);
+                    setSelectedCustomerName(found.name);
                   } else {
                     setSelectedCustomerId(null);
                     setSelectedCustomerName("Walk-in Customer");
                   }
                 }}
-                className="bg-transparent text-slate-900 dark:text-slate-200 text-xs focus:outline-none"
+                className="bg-transparent text-slate-900 dark:text-slate-200 text-xs focus:outline-none max-w-[150px] truncate cursor-pointer font-medium"
               >
-                <option value="" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-300">
-                  Walk-in Customer (F5)
-                </option>
-                <option value="cust-01" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-300">
-                  Haji Muhammad Aslam (Khata #102)
-                </option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-300">
+                    {c.name}
+                  </option>
+                ))}
               </select>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setIsNewCustomerModalOpen(true)}
+              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1 shadow-sm transition"
+              title="Add New Customer & Khata Account"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">+ Customer</span>
+            </button>
 
             {/* Quick Action Icons */}
             <div className="flex items-center gap-1.5">
@@ -1031,7 +1129,7 @@ export const CheckoutView: React.FC = () => {
                 type="button"
                 onClick={toggleTheme}
                 className="p-2 bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-700 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition"
-                title={`Toggle Light/Dark Theme (Ctrl+T) - Currently: ${theme === "dark" ? "Dark" : "Light"}`}
+                title={`Toggle Light/Dark Theme (Ctrl+T) - Currently: ${theme === "dark" ? "Dark Mode" : "Light Mode"}`}
               >
                 {theme === "dark" ? (
                   <Sun className="w-4 h-4 text-amber-400" />
@@ -1042,6 +1140,14 @@ export const CheckoutView: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Wholesale Floor Error Alert */}
+        {priceErrorToast && (
+          <div className="bg-rose-500/10 border border-rose-500/40 rounded-xl px-3.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+            <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+            <span>{priceErrorToast}</span>
+          </div>
+        )}
 
         {/* Touchscreen Numpad Overlay */}
         {touchNumpadOpen && (
@@ -1071,17 +1177,17 @@ export const CheckoutView: React.FC = () => {
           </div>
         )}
 
-        {/* Cart Line Items Table with Keyboard Row Navigation */}
+        {/* Cart Line Items Table with Editable Quantity & Price Inputs */}
         <div className="flex-1 bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800/80 rounded-xl overflow-hidden flex flex-col min-w-0">
           <div className="overflow-y-auto overflow-x-hidden flex-1">
             <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 table-fixed">
-              <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
+              <thead className="bg-slate-100 dark:bg-slate-900/90 text-slate-600 dark:text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
                 <tr>
                   <th className="py-2.5 px-2 w-8 text-center">#</th>
                   <th className="py-2.5 px-3">Item Description</th>
-                  <th className="py-2.5 px-2 w-24 text-right">Price</th>
-                  <th className="py-2.5 px-2 w-28 text-center">Qty (+ / -)</th>
-                  <th className="py-2.5 px-2 w-24 text-right">Total</th>
+                  <th className="py-2.5 px-2 w-28 text-right">Unit Price</th>
+                  <th className="py-2.5 px-2 w-28 text-center">Qty</th>
+                  <th className="py-2.5 px-2 w-28 text-right">Total</th>
                   <th className="py-2.5 px-2 w-8 text-center"></th>
                 </tr>
               </thead>
@@ -1138,37 +1244,60 @@ export const CheckoutView: React.FC = () => {
                             )}
                           </div>
                         </td>
-                        <td className="py-2.5 px-2 text-right font-medium text-xs">
-                          {formatPkr(line.unit_price_paisa)}
-                        </td>
-                        <td className="py-2.5 px-2">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                updateLineQty(line.variant_id, -1000);
+
+                        {/* Editable Price Input with Wholesale Protection */}
+                        <td className="py-2 px-2 text-right">
+                          <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                            <span className="text-[10px] text-slate-400 font-mono">PKR</span>
+                            <input
+                              type="number"
+                              step="1"
+                              min="1"
+                              value={(line.unit_price_paisa / 100).toFixed(0)}
+                              onChange={(e) => {
+                                const pkr = parseFloat(e.target.value);
+                                if (!isNaN(pkr) && pkr >= 0) {
+                                  updateLinePrice(line.variant_id, Math.round(pkr * 100));
+                                }
                               }}
-                              className="p-1 rounded bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
-                              title="Decrease Qty (-)"
-                            >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <span className="font-bold text-slate-900 dark:text-white px-1 min-w-6 text-center text-xs">
-                              {line.qty_milli / 1000}
-                            </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                updateLineQty(line.variant_id, 1000);
+                              onFocus={(e) => {
+                                setSelectedCartIndex(idx);
+                                e.target.select();
                               }}
-                              className="p-1 rounded bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
-                              title="Increase Qty (+)"
-                            >
-                              <Plus className="w-3 h-3" />
-                            </button>
+                              className="w-20 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-lg px-2 py-1 text-right text-xs font-semibold font-mono text-slate-900 dark:text-white transition shadow-2xs"
+                              title="Edit selling price (wholesale floor protected)"
+                            />
                           </div>
                         </td>
-                        <td className="py-2.5 px-2 text-right font-bold text-slate-900 dark:text-white text-xs">
+
+                        {/* Editable Quantity Input */}
+                        <td className="py-2 px-2">
+                          <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={line.qty_milli / 1000}
+                              onChange={(e) => {
+                                const q = parseFloat(e.target.value);
+                                if (!isNaN(q)) {
+                                  setLineExactQty(line.variant_id, Math.round(q * 1000));
+                                }
+                              }}
+                              onFocus={(e) => {
+                                setSelectedCartIndex(idx);
+                                e.target.select();
+                              }}
+                              className="w-14 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-lg px-1.5 py-1 text-center text-xs font-bold font-mono text-slate-900 dark:text-white transition shadow-2xs"
+                              title="Edit Quantity"
+                            />
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase">
+                              {line.unit_code}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className="py-2.5 px-2 text-right font-bold text-slate-900 dark:text-white text-xs font-mono">
                           {formatPkr(lineTotal)}
                         </td>
                         <td className="py-2.5 px-2 text-center">
@@ -1745,6 +1874,93 @@ export const CheckoutView: React.FC = () => {
                 Got It (Esc)
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline New Customer Creation Modal */}
+      {isNewCustomerModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Quick Add Customer</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Register new customer & Khata ledger account</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewCustomerModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddNewCustomer} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Customer Full Name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder="e.g. Tariq Mehmood"
+                  value={newCustName}
+                  onChange={(e) => setNewCustName(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Phone / Mobile Number <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 0300-1234567"
+                  value={newCustPhone}
+                  onChange={(e) => setNewCustPhone(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Khata Credit Limit (PKR)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  value={newCustLimit}
+                  onChange={(e) => setNewCustLimit(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Maximum allowed credit balance for this customer account</p>
+              </div>
+
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsNewCustomerModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-medium transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                >
+                  Save & Select Customer
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

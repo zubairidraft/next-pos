@@ -24,6 +24,7 @@ export interface CartLineItem {
   unit_id?: string;
   qty_milli: number; // 1000 = 1.000
   unit_price_paisa: number;
+  wholesale_price_paisa?: number; // Wholesale floor constraint
   discount_paisa: number;
   tax_paisa: number;
   stock_on_hand_milli: number;

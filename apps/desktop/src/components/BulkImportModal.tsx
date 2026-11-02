@@ -53,7 +53,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     {
       sku: "SHAN-BIR-50G",
       name: "Shan Special Bombay Biryani Masala 50g",
-      nameUr: "شان بمبئی بریانی مصالحہ",
+      nameUr: "Shan Biryani Masala 50g",
       category: "Spices",
       brand: "Shan Foods",
       unit: "pc",
@@ -64,7 +64,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     {
       sku: "DALDA-OIL-1L",
       name: "Dalda Fortified Cooking Oil 1L",
-      nameUr: "ڈالڈا کوکنگ آئل ۱ لیٹر",
+      nameUr: "Dalda Cooking Oil 1L",
       category: "Cooking Oil",
       brand: "Dalda",
       unit: "ltr",
@@ -75,7 +75,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     {
       sku: "TAPAL-DAN-400G",
       name: "Tapal Danedar Black Tea 400g",
-      nameUr: "ٹپال دانے دار چائے ۴۰۰ گرام",
+      nameUr: "Tapal Danedar Tea 400g",
       category: "Tea & Beverages",
       brand: "Tapal",
       unit: "pc",
@@ -86,7 +86,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     {
       sku: "LU-RIO-STR-12",
       name: "LU Rio Strawberry Biscuits Family Pack",
-      nameUr: "ریو اسٹرابیری بسکٹ",
+      nameUr: "LU Rio Strawberry 12s",
       category: "Snacks",
       brand: "LU",
       unit: "pc",
@@ -97,7 +97,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     {
       sku: "NAT-SALT-800G",
       name: "National Iodized Table Salt 800g",
-      nameUr: "نیشنل آئیوڈین ملا نمک ۸۰۰ گرام",
+      nameUr: "National Table Salt 800g",
       category: "Spices",
       brand: "National Foods",
       unit: "pc",

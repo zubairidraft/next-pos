@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { LanguageProvider } from "./context/LanguageContext";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { Agentation } from "agentation";
@@ -46,6 +46,12 @@ import {
   Scale,
   Users,
   FileSpreadsheet,
+  Lock,
+  LogOut,
+  X,
+  AlertCircle,
+  FileUp,
+  AlertTriangle,
 } from "lucide-react";
 
 function AppContent() {
@@ -60,6 +66,70 @@ function AppContent() {
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+
+  // SaaS Admin State (Protected behind master password: NextPOS57348861!)
+  const [isSaasAdmin, setIsSaasAdmin] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("nextpos_saas_admin") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [isSaasAdminModalOpen, setIsSaasAdminModalOpen] = useState(false);
+  const [saasPasswordInput, setSaasPasswordInput] = useState("");
+  const [saasError, setSaasError] = useState("");
+
+  const navRef = useRef<HTMLElement>(null);
+
+  // Global click-outside and Escape key listener for all dropdowns
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) {
+        setIsCatalogDropdownOpen(false);
+        setIsInventoryDropdownOpen(false);
+        setIsMoreMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsCatalogDropdownOpen(false);
+        setIsInventoryDropdownOpen(false);
+        setIsMoreMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  const handleSaasAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (saasPasswordInput === "NextPOS57348861!") {
+      setIsSaasAdmin(true);
+      try {
+        localStorage.setItem("nextpos_saas_admin", "true");
+      } catch {}
+      setIsSaasAdminModalOpen(false);
+      setSaasPasswordInput("");
+      setSaasError("");
+    } else {
+      setSaasError("Invalid SaaS Admin credentials. Access denied.");
+    }
+  };
+
+  const handleSaasAdminLogout = () => {
+    setIsSaasAdmin(false);
+    try {
+      localStorage.removeItem("nextpos_saas_admin");
+    } catch {}
+    setIsMoreMenuOpen(false);
+  };
+
   const [currentUser, setCurrentUser] = useState({
     name: "Owner",
     role: "Owner",
@@ -118,7 +188,7 @@ function AppContent() {
         </div>
 
         {/* Center Nav Tabs */}
-        <nav className="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-950/70 p-1 rounded-xl border border-slate-300/80 dark:border-slate-800/80">
+        <nav ref={navRef} className="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-950/70 p-1 rounded-xl border border-slate-300/80 dark:border-slate-800/80">
           <button
             onClick={() => {
               setActiveTab("checkout");
@@ -156,7 +226,7 @@ function AppContent() {
             </button>
 
             {isCatalogDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
+              <div className="absolute left-0 top-full mt-1.5 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
                 <button
                   onClick={() => {
                     setActiveTab("catalog");
@@ -200,6 +270,16 @@ function AppContent() {
                   <Scale className="w-3.5 h-3.5 text-emerald-500" />
                   <span>Units of Measure (UOM)</span>
                 </button>
+                <button
+                  onClick={() => {
+                    setIsBulkImportOpen(true);
+                    setIsCatalogDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition border-t border-slate-100 dark:border-slate-800"
+                >
+                  <FileUp className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Excel / CSV Bulk Importer</span>
+                </button>
               </div>
             )}
           </div>
@@ -241,7 +321,7 @@ function AppContent() {
             </button>
 
             {isInventoryDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
+              <div className="absolute left-0 top-full mt-1.5 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
                 <button
                   onClick={() => {
                     setPurchasingSubTab("stock");
@@ -277,6 +357,16 @@ function AppContent() {
                 </button>
                 <button
                   onClick={() => {
+                    setActiveTab("khata");
+                    setIsInventoryDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
+                >
+                  <BookOpen className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Customers & Khata Accounts</span>
+                </button>
+                <button
+                  onClick={() => {
                     setActiveTab("audit");
                     setIsInventoryDropdownOpen(false);
                   }}
@@ -284,6 +374,16 @@ function AppContent() {
                 >
                   <ClipboardCheck className="w-3.5 h-3.5 text-amber-500" />
                   <span>Stock Audit & Physical Count</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab("reports");
+                    setIsInventoryDropdownOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition border-t border-slate-100 dark:border-slate-800"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Low Stock Reorder Alerts</span>
                 </button>
               </div>
             )}
@@ -321,7 +421,7 @@ function AppContent() {
             </button>
 
             {isMoreMenuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50">
+              <div className="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50">
                 <button
                   onClick={() => { setActiveTab("backup"); setIsMoreMenuOpen(false); }}
                   className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
@@ -364,6 +464,42 @@ function AppContent() {
                   <Wand2 className="w-3.5 h-3.5 text-amber-500" />
                   <span>Setup Wizard</span>
                 </button>
+
+                {/* SaaS Admin Section */}
+                <div className="border-t border-slate-200 dark:border-slate-800 pt-1 mt-1">
+                  {!isSaasAdmin ? (
+                    <button
+                      onClick={() => {
+                        setIsSaasAdminModalOpen(true);
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center gap-2 font-medium"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>SaaS Admin Login</span>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          setIsDiagnosticsOpen(true);
+                          setIsMoreMenuOpen(false);
+                        }}
+                        className="w-full px-3 py-2 text-left text-xs text-emerald-600 dark:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-semibold"
+                      >
+                        <Activity className="w-3.5 h-3.5" />
+                        <span>Diagnostics (Admin)</span>
+                      </button>
+                      <button
+                        onClick={handleSaasAdminLogout}
+                        className="w-full px-3 py-2 text-left text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center gap-2 font-medium"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>SaaS Admin Logout</span>
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -380,8 +516,8 @@ function AppContent() {
           {/* Theme Toggle Button (Light / Dark) */}
           <button
             onClick={toggleTheme}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition"
-            title={`Toggle Theme (Ctrl+T) - Current: ${theme === "dark" ? "Dark" : "Light"}`}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition"
+            title={`Toggle Theme (Ctrl+T) - Currently: ${theme === "dark" ? "Dark Mode" : "Light Mode"}`}
           >
             {theme === "dark" ? (
               <>
@@ -396,15 +532,17 @@ function AppContent() {
             )}
           </button>
 
-          {/* Diagnostics Button */}
-          <button
-            onClick={() => setIsDiagnosticsOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition"
-            title="System & Hardware Diagnostics"
-          >
-            <Activity className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span className="hidden lg:inline">Health</span>
-          </button>
+          {/* Health Diagnostics Button - ONLY VISIBLE TO SAAS ADMIN */}
+          {isSaasAdmin && (
+            <button
+              onClick={() => setIsDiagnosticsOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 hover:bg-amber-200 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700 transition"
+              title="SaaS Admin: Hardware & Engine Health Diagnostics"
+            >
+              <Activity className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span className="hidden lg:inline">Health (Admin)</span>
+            </button>
+          )}
 
           {/* Cashier Badge & PIN Switch */}
           <div className="flex items-center gap-2 pl-2 border-l border-slate-300 dark:border-slate-800">
@@ -562,6 +700,83 @@ function AppContent() {
         isOpen={isDiagnosticsOpen}
         onClose={() => setIsDiagnosticsOpen(false)}
       />
+
+      {/* SaaS Admin Master Authentication Modal */}
+      {isSaasAdminModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">SaaS Admin Access</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Master Administrative Portal</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSaasAdminModalOpen(false);
+                  setSaasPasswordInput("");
+                  setSaasError("");
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaasAdminLogin} className="p-6 space-y-4">
+              {saasError && (
+                <div className="bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{saasError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Master Password
+                </label>
+                <input
+                  type="password"
+                  autoFocus
+                  required
+                  placeholder="Enter SaaS master password..."
+                  value={saasPasswordInput}
+                  onChange={(e) => {
+                    setSaasPasswordInput(e.target.value);
+                    if (saasError) setSaasError("");
+                  }}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSaasAdminModalOpen(false);
+                    setSaasPasswordInput("");
+                    setSaasError("");
+                  }}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-medium transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                >
+                  Unlock Admin
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
