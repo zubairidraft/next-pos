@@ -122,6 +122,7 @@ fn test_financial_summary_and_category_performance() {
                     unit_price_paisa: 30000,
                     discount_paisa: 0,
                     tax_paisa: 0,
+                    price_override_by: None,
                 },
                 PostSaleLineInput {
                     variant_id: p2.variant_id.clone(),
@@ -130,6 +131,7 @@ fn test_financial_summary_and_category_performance() {
                     unit_price_paisa: 16000,
                     discount_paisa: 0,
                     tax_paisa: 0,
+                    price_override_by: None,
                 },
             ],
             global_discount_paisa: 0,
@@ -139,6 +141,7 @@ fn test_financial_summary_and_category_performance() {
                 reference: None,
             }],
             user_id: Some("usr-1".to_string()),
+            credit_override_by: None,
         },
     ).expect("post sale");
     assert_eq!(s1.total_paisa, 76000);

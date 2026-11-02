@@ -90,6 +90,7 @@ fn test_atomic_sale_posting_with_split_tenders() {
             unit_price_paisa: 75000,
             discount_paisa: 0,
             tax_paisa: 0,
+            price_override_by: None,
         }],
         global_discount_paisa: 0,
         tenders: vec![
@@ -105,6 +106,7 @@ fn test_atomic_sale_posting_with_split_tenders() {
             },
         ],
         user_id: None,
+        credit_override_by: None,
     };
 
     let completed = SaleRepo::post_sale(&mut conn, sale_req).expect("Post sale");
@@ -140,6 +142,7 @@ fn test_atomic_sale_posting_with_split_tenders() {
             unit_price_paisa: 75000,
             discount_paisa: 0,
             tax_paisa: 0,
+            price_override_by: None,
         }],
         global_discount_paisa: 0,
         tenders: vec![PaymentTenderInput {
@@ -148,6 +151,7 @@ fn test_atomic_sale_posting_with_split_tenders() {
             reference: None,
         }],
         user_id: None,
+        credit_override_by: None,
     };
 
     let err = SaleRepo::post_sale(&mut conn, over_req).expect_err("Should block negative stock");

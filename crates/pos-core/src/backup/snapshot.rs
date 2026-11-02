@@ -130,12 +130,64 @@ impl SnapshotManager {
         let meta = fs::metadata(newest).ok()?;
         let filename = newest.file_name()?.to_string_lossy().to_string();
 
+        let created_at = meta
+            .modified()
+            .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
+            .unwrap_or_default();
+
         Some(SnapshotInfo {
             path: newest.to_string_lossy().to_string(),
             filename,
             file_size_bytes: meta.len(),
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at,
             is_valid: meta.len() > 0,
         })
+    }
+
+    /// Blueprint retention: keep the newest `keep_recent` snapshots (48 = one day at
+    /// 30-minute intervals) plus the newest snapshot of each of the last `keep_daily`
+    /// calendar days (30). Everything else is deleted. Returns how many were removed.
+    pub fn apply_retention(
+        dest_dir: &Path,
+        keep_recent: usize,
+        keep_daily: usize,
+    ) -> Result<usize, PosError> {
+        if !dest_dir.exists() {
+            return Ok(0);
+        }
+        let mut files: Vec<(PathBuf, std::time::SystemTime)> = fs::read_dir(dest_dir)
+            .map_err(|e| PosError::Db(format!("Failed to read snapshot directory: {}", e)))?
+            .filter_map(std::result::Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && p.extension().map(|x| x == "kdb").unwrap_or(false))
+            .filter_map(|p| {
+                let t = fs::metadata(&p).and_then(|m| m.modified()).ok()?;
+                Some((p, t))
+            })
+            .collect();
+        files.sort_by(|a, b| b.1.cmp(&a.1)); // newest first
+
+        let mut keep = std::collections::HashSet::new();
+        for (p, _) in files.iter().take(keep_recent) {
+            keep.insert(p.clone());
+        }
+        let mut days_seen = std::collections::HashSet::new();
+        for (p, t) in &files {
+            let day = chrono::DateTime::<chrono::Utc>::from(*t).date_naive();
+            if days_seen.len() >= keep_daily && !days_seen.contains(&day) {
+                continue;
+            }
+            if days_seen.insert(day) {
+                keep.insert(p.clone());
+            }
+        }
+
+        let mut removed = 0;
+        for (p, _) in &files {
+            if !keep.contains(p) && fs::remove_file(p).is_ok() {
+                removed += 1;
+            }
+        }
+        Ok(removed)
     }
 }

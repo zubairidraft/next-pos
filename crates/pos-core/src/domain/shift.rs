@@ -197,6 +197,16 @@ impl ShiftRepo {
             )
             .map_err(|e| PosError::Db(format!("Session not found: {}", e)))?;
 
+        let status: String = conn
+            .query_row("SELECT status FROM cash_sessions WHERE id = ?1", params![session_id], |r| r.get(0))
+            .map_err(|e| PosError::Db(format!("Session not found: {}", e)))?;
+        if status != "open" {
+            return Err(PosError::Validation("This shift is already closed".to_string()));
+        }
+        if counted_cash_paisa < 0 {
+            return Err(PosError::Validation("Counted cash cannot be negative".to_string()));
+        }
+
         let cashier_name: String = conn
             .query_row(
                 "SELECT username FROM users WHERE id = ?1",
@@ -227,7 +237,18 @@ impl ShiftRepo {
         let tender_digital_paisa: i64 = conn
             .query_row(
                 "SELECT COALESCE(SUM(amount_paisa), 0) FROM payments
-                 WHERE cash_session_id = ?1 AND direction = 'inbound' AND method IN ('jazzcash', 'easypaisa', 'raast', 'bank')",
+                 WHERE cash_session_id = ?1 AND direction = 'inbound' AND method IN ('jazzcash', 'easypaisa', 'raast', 'bank', 'cheque')",
+                params![session_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+
+        // Cash paid out for returns (reference = RET- document) vs. petty cash / drops
+        let refunds_paisa: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(amount_paisa), 0) FROM payments
+                 WHERE cash_session_id = ?1 AND direction = 'outbound' AND method = 'cash'
+                   AND reference LIKE 'RET-%'",
                 params![session_id],
                 |r| r.get(0),
             )
@@ -236,7 +257,8 @@ impl ShiftRepo {
         let cash_drops_paisa: i64 = conn
             .query_row(
                 "SELECT COALESCE(SUM(amount_paisa), 0) FROM payments
-                 WHERE cash_session_id = ?1 AND direction = 'outbound' AND method = 'cash'",
+                 WHERE cash_session_id = ?1 AND direction = 'outbound' AND method = 'cash'
+                   AND (reference IS NULL OR reference NOT LIKE 'RET-%')",
                 params![session_id],
                 |r| r.get(0),
             )
@@ -257,12 +279,19 @@ impl ShiftRepo {
             )
             .unwrap_or((0, 0, 0, 0, 0));
 
-        let tender_khata_paisa = std::cmp::max(
-            0,
-            net_sales_paisa - (tender_cash_paisa + tender_card_paisa + tender_digital_paisa),
-        );
+        // Khata credit actually posted for this shift's sales
+        let tender_khata_paisa: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(pl.debit_paisa), 0) FROM party_ledger pl
+                 JOIN sales s ON s.doc_no = pl.source_doc
+                 WHERE s.cash_session_id = ?1 AND pl.entry_type = 'sale'",
+                params![session_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
-        let expected_cash_paisa = opening_float + tender_cash_paisa - cash_drops_paisa;
+        // Cash payments are stored net of change, so this is the cash that should be in the drawer.
+        let expected_cash_paisa = opening_float + tender_cash_paisa - cash_drops_paisa - refunds_paisa;
         let variance_paisa = counted_cash_paisa - expected_cash_paisa;
         let closed_at = chrono::Utc::now().to_rfc3339();
 
@@ -301,7 +330,7 @@ impl ShiftRepo {
             tender_digital_paisa,
             tender_khata_paisa,
             cash_drops_paisa,
-            refunds_paisa: 0,
+            refunds_paisa,
             expected_cash_paisa,
             counted_cash_paisa,
             variance_paisa,

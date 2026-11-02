@@ -73,6 +73,7 @@ fn test_sale_return_restores_stock_and_prevents_excess_returns() {
             unit_price_paisa: 100000,
             discount_paisa: 0,
             tax_paisa: 0,
+            price_override_by: None,
         }],
         global_discount_paisa: 0,
         tenders: vec![PaymentTenderInput {
@@ -81,6 +82,7 @@ fn test_sale_return_restores_stock_and_prevents_excess_returns() {
             reference: None,
         }],
         user_id: None,
+        credit_override_by: None,
     };
     let completed_sale = SaleRepo::post_sale(&mut conn, sale_req).expect("sale should succeed");
     assert_eq!(completed_sale.lines.len(), 1);

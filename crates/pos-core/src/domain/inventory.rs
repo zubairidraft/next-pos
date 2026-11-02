@@ -62,7 +62,10 @@ pub struct InventoryRepo;
 
 impl InventoryRepo {
     /// Records an immutable stock movement and updates the materialized balance cache atomically.
-    /// Strictly blocks outbound negative stock if the system setting stock_policy is "Block".
+    /// Blocks outbound negative stock when `business_settings.negative_stock_policy` is
+    /// "Block" (the default, also used when no settings row exists or the value is unknown).
+    /// "Warn" and "Allow" let stock go negative; the UI is responsible for showing the warning.
+    /// Serial-tracked products can never go negative, whatever the policy.
     pub fn record_movement(conn: &Connection, params: RecordMovementParams) -> Result<StockMovement> {
         let now = Utc::now().to_rfc3339();
 
@@ -70,13 +73,26 @@ impl InventoryRepo {
         if params.qty_signed_milli < 0 {
             let policy: String = conn
                 .query_row(
-                    "SELECT stock_policy FROM business_settings LIMIT 1",
+                    "SELECT negative_stock_policy FROM business_settings LIMIT 1",
                     [],
                     |row| row.get(0),
                 )
                 .unwrap_or_else(|_| "Block".to_string());
+            let policy_allows_negative =
+                policy.eq_ignore_ascii_case("warn") || policy.eq_ignore_ascii_case("allow");
+            let serial_tracked: bool = conn
+                .query_row(
+                    "SELECT p.track_mode FROM product_variants pv JOIN products p ON p.id = pv.product_id
+                     WHERE pv.id = ?1",
+                    [&params.variant_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .ok()
+                .flatten()
+                .map(|m| m.eq_ignore_ascii_case("serial"))
+                .unwrap_or(false);
 
-            if policy == "Block" {
+            if !policy_allows_negative || serial_tracked {
                 let current_on_hand: i64 = conn
                     .query_row(
                         "SELECT on_hand_milli FROM inventory_balances WHERE variant_id = ?1",

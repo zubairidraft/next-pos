@@ -94,6 +94,7 @@ fn test_shift_lifecycle_and_z_report() {
             unit_price_paisa: 85000, // 850 PKR
             discount_paisa: 0,
             tax_paisa: 0,
+            price_override_by: None,
         }],
         global_discount_paisa: 0,
         tenders: vec![PaymentTenderInput {
@@ -102,6 +103,7 @@ fn test_shift_lifecycle_and_z_report() {
             reference: None,
         }],
         user_id: Some(user_id.clone()),
+        credit_override_by: None,
     };
     let completed_sale = SaleRepo::post_sale(&mut conn, sale_req).expect("failed to post sale");
     assert_eq!(completed_sale.total_paisa, 170000);

@@ -1,4 +1,5 @@
 pub mod analytics;
+pub mod audit;
 pub mod apparel;
 pub mod brand;
 pub mod cart;
@@ -19,6 +20,7 @@ pub mod shift;
 pub mod stock_count;
 pub mod unit;
 
+pub use audit::AuditRepo;
 pub use analytics::{AnalyticsRepo, CategoryPerformance, FinancialSummary, InventoryValuation, TopProduct};
 pub use apparel::{ApparelMatrixInput, ApparelMatrixService, GeneratedMatrixVariant};
 pub use brand::{Brand, BrandRepo};

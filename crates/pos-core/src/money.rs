@@ -169,6 +169,22 @@ pub fn calc_line_total(unit_price: Paisa, qty: Qty) -> Paisa {
     Paisa(rounded as i64)
 }
 
+/// Computes `a * b / d` in 128-bit arithmetic with half-up rounding (away from zero).
+/// Used for every money/quantity scaling in posting code so all modules round the same way.
+/// `d` must be positive.
+pub fn mul_div_half_up(a: i64, b: i64, d: i64) -> i64 {
+    debug_assert!(d > 0, "divisor must be positive");
+    let product = (a as i128) * (b as i128);
+    let d = d as i128;
+    let half = d / 2;
+    let r = if product >= 0 {
+        (product + half) / d
+    } else {
+        (product - half) / d
+    };
+    r as i64
+}
+
 /// Calculate tax-exclusive amount:
 /// tax = round_half_up(net * rate_bp / 10,000)
 pub fn calc_tax_exclusive(net: Paisa, rate_bp: RateBp) -> Paisa {

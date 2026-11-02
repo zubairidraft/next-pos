@@ -179,7 +179,6 @@ impl PurchaseRepo {
             )
             .map_err(|_| PosError::NotFound(format!("Vendor {} does not exist", input.vendor_id)))?;
 
-        let doc_no = Self::next_doc_no(conn, "purchase")?;
         let purchase_id = Ulid::new().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -193,8 +192,11 @@ impl PurchaseRepo {
         let total_invoice_paisa = lines_subtotal + input.freight_paisa;
 
         let tx = conn
-            .transaction()
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|e| PosError::Db(format!("Failed to begin transaction: {}", e)))?;
+
+        // Number is taken inside the transaction so a failed purchase leaves no gap
+        let doc_no = Self::next_doc_no(&tx, "purchase")?;
 
         // 1. Insert purchase invoice
         tx.execute(
@@ -329,6 +331,16 @@ impl PurchaseRepo {
             ],
         )
         .map_err(|e| PosError::Db(format!("Failed to insert vendor ledger entry: {}", e)))?;
+
+        crate::domain::audit::AuditRepo::write(
+            &tx,
+            None,
+            "purchase_posted",
+            "purchase",
+            Some(&purchase_id),
+            None,
+            Some(&format!("{{\"doc_no\":\"{}\",\"total_paisa\":{}}}", doc_no, total_invoice_paisa)),
+        )?;
 
         tx.commit()
             .map_err(|e| PosError::Db(format!("Failed to commit purchase invoice: {}", e)))?;

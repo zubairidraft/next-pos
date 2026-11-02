@@ -121,6 +121,7 @@ fn test_crash_resilience_and_transaction_atomicity() {
             unit_price_paisa: 150000,
             discount_paisa: 0,
             tax_paisa: 0,
+            price_override_by: None,
         }],
         global_discount_paisa: 0,
         tenders: vec![PaymentTenderInput {
@@ -129,6 +130,7 @@ fn test_crash_resilience_and_transaction_atomicity() {
             reference: None,
         }],
         user_id: None,
+        credit_override_by: None,
     };
 
     let completed = SaleRepo::post_sale(&mut conn_active, post_req).expect("post sale");

@@ -90,6 +90,7 @@ fn test_fifo_invoice_payment_allocation_and_credit_limit() {
                 unit_price_paisa: 100000,
                 discount_paisa: 0,
                 tax_paisa: 0,
+                price_override_by: None,
             }],
             global_discount_paisa: 0,
             tenders: vec![PaymentTenderInput {
@@ -98,6 +99,7 @@ fn test_fifo_invoice_payment_allocation_and_credit_limit() {
                 reference: Some("Sale 1 Credit".to_string()),
             }],
             user_id: None,
+            credit_override_by: None,
         },
     )
     .expect("post sale 1");
@@ -115,6 +117,7 @@ fn test_fifo_invoice_payment_allocation_and_credit_limit() {
                 unit_price_paisa: 100000,
                 discount_paisa: 0,
                 tax_paisa: 0,
+                price_override_by: None,
             }],
             global_discount_paisa: 0,
             tenders: vec![PaymentTenderInput {
@@ -123,6 +126,7 @@ fn test_fifo_invoice_payment_allocation_and_credit_limit() {
                 reference: Some("Sale 2 Credit".to_string()),
             }],
             user_id: None,
+            credit_override_by: None,
         },
     )
     .expect("post sale 2");

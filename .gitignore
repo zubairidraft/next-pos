@@ -4,3 +4,4 @@ dist/
 *.log
 *.key
 .nextpos_security/
+.nextpos_signing/

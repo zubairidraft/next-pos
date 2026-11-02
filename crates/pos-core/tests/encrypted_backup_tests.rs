@@ -3,80 +3,81 @@ use pos_core::db::connection::{open_encrypted_db, run_migrations};
 use std::fs;
 use tempfile::tempdir;
 
-#[test]
-fn test_encrypted_backup_export_and_restore() {
-    let dir = tempdir().unwrap();
-    let original_db_path = dir.path().join("pos_source.db");
-    let backup_file_path = dir.path().join("backup_export.kpos");
-    let restored_db_path = dir.path().join("pos_restored.db");
+const PW: &str = "shop-backup-2026";
 
-    let db_key = [77u8; 32];
-    let mut conn = open_encrypted_db(&original_db_path, &db_key).expect("open db");
+fn seeded(path: &std::path::Path, key: &[u8; 32]) -> rusqlite::Connection {
+    let mut conn = open_encrypted_db(path, key).expect("open db");
     run_migrations(&mut conn).expect("migrations");
-
-    // Insert test record
     conn.execute(
         "INSERT INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-bak', 'BOX', 'Box Pack', 0, '2026-10-29T10:00:00Z')",
         [],
-    ).expect("insert unit");
-
-    // Close connection cleanly so WAL checkpoints to main db file
-    drop(conn);
-
-    let backup_key = [99u8; 32];
-
-    // 1. Export backup package with encryption key
-    let manifest = CryptoBackupService::export_backup(
-        &original_db_path,
-        &backup_file_path,
-        Some(&backup_key),
-    ).expect("export backup");
-
-    assert_eq!(manifest.magic, "KPOS_BACKUP_V1");
-    assert_eq!(manifest.app_version, "0.1.0");
-    assert!(manifest.payload_size_bytes > 0);
-    assert!(!manifest.checksum_hex.is_empty());
-    assert!(backup_file_path.exists());
-
-    // 2. Restore backup package
-    let restore_manifest = CryptoBackupService::restore_backup(
-        &backup_file_path,
-        &restored_db_path,
-        Some(&backup_key),
-    ).expect("restore backup");
-
-    assert_eq!(restore_manifest.checksum_hex, manifest.checksum_hex);
-    assert!(restored_db_path.exists());
-
-    // 3. Open restored DB and verify integrity and data
-    let restored_conn = open_encrypted_db(&restored_db_path, &db_key).expect("open restored db");
-    let integrity: String = restored_conn
-        .query_row("PRAGMA integrity_check", [], |r| r.get(0))
-        .expect("integrity check");
-    assert_eq!(integrity, "ok");
-
-    let unit_name: String = restored_conn
-        .query_row("SELECT name FROM units WHERE id = 'u-bak'", [], |r| r.get(0))
-        .expect("select restored unit");
-    assert_eq!(unit_name, "Box Pack");
+    ).unwrap();
+    conn
 }
 
 #[test]
-fn test_restore_fails_with_wrong_key() {
+fn test_encrypted_backup_export_and_restore_to_new_pc_key() {
     let dir = tempdir().unwrap();
-    let source_path = dir.path().join("source.db");
-    let backup_path = dir.path().join("backup.kpos");
-    let restore_path = dir.path().join("target.db");
+    let src = dir.path().join("pos_source.db");
+    let bak = dir.path().join("usb").join("backup.kpos");
+    let restored = dir.path().join("pos_restored.db");
 
-    fs::write(&source_path, b"SOME_SAMPLE_DATABASE_DATA_BYTES_TEST").unwrap();
+    let conn = seeded(&src, &[77u8; 32]);
+    let manifest = CryptoBackupService::export_backup(&conn, &bak, PW).expect("export");
+    assert_eq!(manifest.format_version, 2);
+    assert!(manifest.schema_version >= 6);
+    assert!(bak.exists());
 
-    let backup_key = [88u8; 32];
-    let wrong_key = [77u8; 32];
+    // Backup file contains no readable shop data and is not a plain SQLite file
+    let raw = fs::read(&bak).unwrap();
+    assert!(!raw.windows(8).any(|w| w == b"Box Pack"));
+    assert!(!raw.windows(15).any(|w| w == b"SQLite format 3"));
 
-    CryptoBackupService::export_backup(&source_path, &backup_path, Some(&backup_key))
-        .expect("export");
+    // Restore onto a "new PC" with a different database key
+    let new_key = [55u8; 32];
+    let report = CryptoBackupService::restore_backup(&bak, &restored, PW, &new_key).expect("restore");
+    assert!(report.safety_copy_path.is_none());
+    let r = open_encrypted_db(&restored, &new_key).expect("open restored db");
+    let name: String = r.query_row("SELECT name FROM units WHERE id = 'u-bak'", [], |x| x.get(0)).unwrap();
+    assert_eq!(name, "Box Pack");
+    assert!(open_encrypted_db(&restored, &[77u8; 32]).is_err(), "old key must not open the re-keyed DB");
+}
 
-    // Restoring with wrong key must fail checksum verification
-    let res = CryptoBackupService::restore_backup(&backup_path, &restore_path, Some(&wrong_key));
-    assert!(res.is_err(), "Restoring with wrong key must fail checksum check");
+#[test]
+fn test_restore_fails_with_wrong_password_and_on_tamper() {
+    let dir = tempdir().unwrap();
+    let src = dir.path().join("source.db");
+    let bak = dir.path().join("backup.kpos");
+    let target = dir.path().join("target.db");
+    let conn = seeded(&src, &[1u8; 32]);
+    CryptoBackupService::export_backup(&conn, &bak, PW).unwrap();
+
+    assert!(CryptoBackupService::restore_backup(&bak, &target, "wrong-password", &[2u8; 32]).is_err());
+    assert!(!target.exists(), "nothing written on failure");
+
+    let mut raw = fs::read(&bak).unwrap();
+    let n = raw.len();
+    raw[n - 100] ^= 0xFF;
+    fs::write(&bak, raw).unwrap();
+    assert!(CryptoBackupService::verify_backup(&bak, PW).is_err());
+    assert!(CryptoBackupService::export_backup(&conn, &bak, "short").is_err(), "short password rejected");
+}
+
+#[test]
+fn test_restore_keeps_safety_copy_of_current_db() {
+    let dir = tempdir().unwrap();
+    let src = dir.path().join("live.db");
+    let bak = dir.path().join("b.kpos");
+    let key = [9u8; 32];
+    let conn = seeded(&src, &key);
+    CryptoBackupService::export_backup(&conn, &bak, PW).unwrap();
+    conn.execute("DELETE FROM units WHERE id = 'u-bak'", []).unwrap();
+    drop(conn);
+
+    let report = CryptoBackupService::restore_backup(&bak, &src, PW, &key).unwrap();
+    let safety = report.safety_copy_path.expect("safety copy");
+    assert!(std::path::Path::new(&safety).exists());
+    let r = open_encrypted_db(&src, &key).unwrap();
+    let n: i64 = r.query_row("SELECT count(*) FROM units WHERE id = 'u-bak'", [], |x| x.get(0)).unwrap();
+    assert_eq!(n, 1, "restored data is back");
 }
