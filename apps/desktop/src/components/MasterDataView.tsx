@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { FolderTree, Tag, Scale, Plus, Search, Trash2 } from "lucide-react";
+import { api } from "../lib/api";
 
 interface MasterItem {
   id: string;
@@ -16,12 +17,6 @@ interface MasterDataViewProps {
 export const MasterDataView: React.FC<MasterDataViewProps> = ({ initialTab = "categories" }) => {
   const [activeTab, setActiveTab] = useState<"categories" | "brands" | "units">(initialTab);
   const [search, setSearch] = useState("");
-
-  useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab);
-    }
-  }, [initialTab]);
 
   const [categories, setCategories] = useState<MasterItem[]>([
     { id: "1", name: "Beverages & Drinks", description: "Soft drinks, juices, mineral water" },
@@ -53,6 +48,37 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({ initialTab = "ca
     { id: "6", name: "Dozen", code: "dzn", decimals: 0, description: "12 individual units" },
   ]);
 
+  const loadData = async () => {
+    try {
+      const [cats, brs, unts] = await Promise.all([
+        api.listCategories(),
+        api.listBrands(),
+        api.listUnits(),
+      ]);
+      if (cats && cats.length > 0) {
+        setCategories(cats.map(c => ({ id: c.id, name: c.name, description: c.name_ur || undefined })));
+      }
+      if (brs && brs.length > 0) {
+        setBrands(brs.map(b => ({ id: b.id, name: b.name, description: b.name_ur || undefined })));
+      }
+      if (unts && unts.length > 0) {
+        setUnits(unts.map(u => ({ id: u.id, name: u.name, code: u.code, decimals: u.decimals_allowed })));
+      }
+    } catch (err) {
+      console.warn("Using default master data fallback:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
   // Form State
   const [showAddForm, setShowAddForm] = useState(false);
   const [newNameEn, setNewNameEn] = useState("");
@@ -60,19 +86,33 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({ initialTab = "ca
   const [newCode, setNewCode] = useState("");
   const [newDecimals, setNewDecimals] = useState(0);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!newNameEn.trim()) return;
-    const newItem: MasterItem = {
-      id: Date.now().toString(),
-      name: newNameEn.trim(),
-      description: newDescription.trim() || undefined,
-      code: newCode.trim() || undefined,
-      decimals: newDecimals,
-    };
-
-    if (activeTab === "categories") setCategories([...categories, newItem]);
-    if (activeTab === "brands") setBrands([...brands, newItem]);
-    if (activeTab === "units") setUnits([...units, newItem]);
+    try {
+      if (activeTab === "categories") {
+        const created = await api.createCategory(newNameEn.trim(), newDescription.trim() || null);
+        setCategories(prev => [...prev, { id: created.id, name: created.name, description: created.name_ur || undefined }]);
+      } else if (activeTab === "brands") {
+        const created = await api.createBrand(newNameEn.trim(), newDescription.trim() || null);
+        setBrands(prev => [...prev, { id: created.id, name: created.name, description: created.name_ur || undefined }]);
+      } else if (activeTab === "units") {
+        const unitCode = newCode.trim().toLowerCase() || newNameEn.trim().slice(0, 3).toLowerCase();
+        const created = await api.createUnit(unitCode, newNameEn.trim(), newDecimals);
+        setUnits(prev => [...prev, { id: created.id, name: created.name, code: created.code, decimals: created.decimals_allowed }]);
+      }
+    } catch (err) {
+      console.error("Failed to create master data item via Tauri:", err);
+      const newItem: MasterItem = {
+        id: Date.now().toString(),
+        name: newNameEn.trim(),
+        description: newDescription.trim() || undefined,
+        code: newCode.trim() || undefined,
+        decimals: newDecimals,
+      };
+      if (activeTab === "categories") setCategories([...categories, newItem]);
+      if (activeTab === "brands") setBrands([...brands, newItem]);
+      if (activeTab === "units") setUnits([...units, newItem]);
+    }
 
     setNewNameEn("");
     setNewDescription("");

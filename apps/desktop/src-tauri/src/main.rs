@@ -7,9 +7,11 @@ use pos_core::backup::CryptoBackupService;
 use pos_core::db::connection::{open_encrypted_db, run_migrations};
 use pos_core::db::key::DbKeyManager;
 use pos_core::domain::{
-    AnalyticsRepo, BusinessSettings, CashSession, CatalogRepo, CompletedSale, FinancialSummary,
-    KhataRepo, PostSaleRequest, ProductSearchResult,
-    ReturnRepo, PostReturnRequest, CompletedReturn, SaleRepo, SettingsRepo, ShiftRepo,
+    AnalyticsRepo, Brand, BrandRepo, BusinessSettings, CashSession, CatalogRepo, Category,
+    CategoryRepo, CompletedReturn, CompletedSale, CreatePartyParams, CreateProductParams,
+    CreatePurchaseInput, FinancialSummary, KhataRepo, Party, PartyRepo, PostReturnRequest,
+    PostSaleRequest, ProductSearchResult, PurchaseInvoice, PurchaseRepo, ReturnRepo, SaleRepo,
+    SettingsRepo, ShiftRepo, Unit, UnitRepo,
 };
 use pos_core::error::PosError;
 use rusqlite::{params, Connection};
@@ -327,6 +329,108 @@ fn search_products(
 }
 
 #[tauri::command]
+fn list_products_catalog(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<ProductSearchResult>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    CatalogRepo::list_products(&conn, limit.unwrap_or(100), offset.unwrap_or(0)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_product(
+    state: State<'_, AppState>,
+    params: CreateProductParams,
+) -> Result<ProductSearchResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    CatalogRepo::create_product(&conn, params).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_categories(state: State<'_, AppState>) -> Result<Vec<Category>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    CategoryRepo::list(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_category(
+    state: State<'_, AppState>,
+    name: String,
+    name_ur: Option<String>,
+    parent_id: Option<String>,
+) -> Result<Category, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    CategoryRepo::create(&conn, &name, name_ur.as_deref(), parent_id.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_brands(state: State<'_, AppState>) -> Result<Vec<Brand>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    BrandRepo::list(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_brand(
+    state: State<'_, AppState>,
+    name: String,
+    name_ur: Option<String>,
+) -> Result<Brand, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    BrandRepo::create(&conn, &name, name_ur.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_units(state: State<'_, AppState>) -> Result<Vec<Unit>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    UnitRepo::list(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_unit(
+    state: State<'_, AppState>,
+    code: String,
+    name: String,
+    decimals_allowed: u8,
+) -> Result<Unit, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    UnitRepo::create(&conn, &code, &name, decimals_allowed).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_party(
+    state: State<'_, AppState>,
+    params: CreatePartyParams,
+) -> Result<Party, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    PartyRepo::create_party(&conn, params).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_vendors(state: State<'_, AppState>) -> Result<Vec<Party>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    PartyRepo::list_vendors(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_purchase_invoice(
+    state: State<'_, AppState>,
+    input: CreatePurchaseInput,
+) -> Result<PurchaseInvoice, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    PurchaseRepo::post_purchase(&mut conn, input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_purchases(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<PurchaseInvoice>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    PurchaseRepo::list_purchases(&conn, limit.unwrap_or(50)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn post_sale(
     state: State<'_, AppState>,
     mut request: PostSaleRequest,
@@ -614,6 +718,18 @@ fn main() {
             list_active_users,
             logout_user,
             search_products,
+            list_products_catalog,
+            create_product,
+            list_categories,
+            create_category,
+            list_brands,
+            create_brand,
+            list_units,
+            create_unit,
+            create_party,
+            list_vendors,
+            create_purchase_invoice,
+            list_purchases,
             post_sale,
             get_recent_sales,
             post_return,

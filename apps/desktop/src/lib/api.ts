@@ -49,6 +49,8 @@ export interface ProductSearchResult {
   category?: string | null;
   category_id?: string | null;
   category_name?: string | null;
+  brand_id?: string | null;
+  brand_name?: string | null;
   base_unit_id: string;
   base_unit_code: string;
   unit_id?: string;
@@ -147,6 +149,125 @@ export interface FinancialSummary {
   returns_paisa: number;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  name_ur?: string | null;
+  parent_id?: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export interface Brand {
+  id: string;
+  name: string;
+  name_ur?: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export interface Unit {
+  id: string;
+  code: string;
+  name: string;
+  decimals_allowed: number;
+  created_at: string;
+}
+
+export interface CreatePackagingUnitParams {
+  unit_id: string;
+  factor_to_base: number;
+  barcode?: string | null;
+  retail_price_paisa?: number | null;
+}
+
+export interface CreateProductParams {
+  sku: string;
+  name: string;
+  name_ur?: string | null;
+  category_id?: string | null;
+  brand_id?: string | null;
+  base_unit_id: string;
+  hs_code?: string | null;
+  tax_rate_id?: string | null;
+  track_mode?: string | null;
+  reorder_level_milli?: number | null;
+  barcode?: string | null;
+  retail_price_paisa: number;
+  wholesale_price_paisa?: number | null;
+  packaging_units?: CreatePackagingUnitParams[];
+}
+
+export interface Party {
+  id: string;
+  party_type: string;
+  name: string;
+  name_ur?: string | null;
+  phone?: string | null;
+  cnic?: string | null;
+  ntn?: string | null;
+  credit_limit_paisa: number;
+  opening_balance_paisa: number;
+  price_list_id?: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePartyParams {
+  party_type: "customer" | "vendor" | "both";
+  name: string;
+  name_ur?: string | null;
+  phone?: string | null;
+  cnic?: string | null;
+  ntn?: string | null;
+  credit_limit_paisa: number;
+  opening_balance_paisa: number;
+  price_list_id?: string | null;
+}
+
+export interface PurchaseInvoiceLine {
+  id: string;
+  purchase_id: string;
+  variant_id: string;
+  product_name: string;
+  sku: string;
+  unit_id: string;
+  unit_code: string;
+  received_qty_milli: number;
+  unit_cost_paisa: number;
+  total_paisa: number;
+  effective_unit_cost_paisa: number;
+}
+
+export interface PurchaseInvoice {
+  id: string;
+  doc_no: string;
+  vendor_id: string;
+  vendor_name: string;
+  vendor_invoice_no?: string | null;
+  status: string;
+  freight_paisa: number;
+  total_paisa: number;
+  lines: PurchaseInvoiceLine[];
+  created_at: string;
+}
+
+export interface CreatePurchaseLineInput {
+  variant_id: string;
+  unit_id: string;
+  received_qty_milli: number;
+  unit_cost_paisa: number;
+}
+
+export interface CreatePurchaseInput {
+  vendor_id: string;
+  vendor_invoice_no?: string | null;
+  freight_paisa: number;
+  lines: CreatePurchaseLineInput[];
+  user_id?: string | null;
+}
+
 export interface CloudSyncResult {
   success: boolean;
   synced_count: number;
@@ -186,6 +307,32 @@ export const api = {
   logoutUser: () => callTauri<void>("logout_user"),
 
   searchProducts: (query: string) => callTauri<ProductSearchResult[]>("search_products", { query }),
+  listProductsCatalog: (limit = 100, offset = 0) =>
+    callTauri<ProductSearchResult[]>("list_products_catalog", { limit, offset }),
+  createProduct: (params: CreateProductParams) =>
+    callTauri<ProductSearchResult>("create_product", { params: { ...params, packaging_units: params.packaging_units || [] } }),
+
+  listCategories: () => callTauri<Category[]>("list_categories"),
+  createCategory: (name: string, name_ur?: string | null, parent_id?: string | null) =>
+    callTauri<Category>("create_category", { name, name_ur: name_ur || null, parent_id: parent_id || null }),
+
+  listBrands: () => callTauri<Brand[]>("list_brands"),
+  createBrand: (name: string, name_ur?: string | null) =>
+    callTauri<Brand>("create_brand", { name, name_ur: name_ur || null }),
+
+  listUnits: () => callTauri<Unit[]>("list_units"),
+  createUnit: (code: string, name: string, decimals_allowed: number) =>
+    callTauri<Unit>("create_unit", { code, name, decimals_allowed }),
+
+  createParty: (params: CreatePartyParams) =>
+    callTauri<Party>("create_party", { params }),
+  listVendors: () => callTauri<Party[]>("list_vendors"),
+
+  createPurchaseInvoice: (input: CreatePurchaseInput) =>
+    callTauri<PurchaseInvoice>("create_purchase_invoice", { input }),
+  listPurchases: (limit = 50) =>
+    callTauri<PurchaseInvoice[]>("list_purchases", { limit }),
+
   postSale: (request: PostSaleRequest) => callTauri<CompletedSale>("post_sale", { request }),
   getRecentSales: (limit = 20) => callTauri<SaleHistoryRow[]>("get_recent_sales", { limit }),
 

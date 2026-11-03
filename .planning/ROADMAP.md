@@ -18,6 +18,7 @@ Next POS is delivered across 12 focused implementation phases (corresponding to 
 - [ ] **Phase 10: Licensing, Updates & Industry Packs** - Ed25519 offline license verification, machine fingerprinting, Grocery pack (scale barcodes), and Electronics pack (serial/IMEI tracking).
 - [ ] **Phase 11: Resilience Testing, Security Audit & Pilot Deployment** - Power-pull resilience testing, performance benchmarks with 1M rows, Urdu operator training manual, and 5-shop pilot rollout.
 - [ ] **Phase 12: Pilot Hardening & General Availability Launch** - Resolution of shop feedback, final hardware compatibility certifications, dealer portal, and production Windows release.
+- [x] **Phase 13: Core Data Wiring & SQLite Persistence** - Expose Rust master data and catalog IPC commands, wire Catalog, Master Data, Khata, and Purchasing frontend to real encrypted SQLite database.
 
 ---
 
@@ -215,3 +216,21 @@ Plans:
 - [x] 12-02: Certified Pakistani hardware compatibility matrix and ESC/POS diagnostic alignment suite.
 - [x] 12-03: Standalone offline dealer license provisioning CLI tool (`crates/pos-license-cli`).
 - [x] 12-04: Production NSIS Windows bundle, embedded asset packaging, and GA v1.0 release pipeline.
+
+### Phase 13: Core Data Wiring & SQLite Persistence
+**Goal**: Connect volatile frontend views (Catalog, Master Data, Khata, Purchasing, and Customer creation) to `pos-core` repositories via Tauri IPC commands, replacing in-memory mock states with persistent SQLite storage.  
+**Depends on**: Phase 12  
+**Requirements**: PROD-PERSIST-01, MASTER-DATA-01, KHATA-PERSIST-01  
+**Success Criteria**:
+  1. Products, categories, brands, and units added or edited in the UI persist across application restarts.
+  2. New customers created at POS checkout or in Khata view are saved to the SQLite `parties` table and appear immediately in search/picker.
+  3. Catalog search, filtering, and pagination query the local encrypted database rather than hardcoded mock arrays.
+  4. Vendor purchase invoices and stock adjustments update `inventory_balances` in SQLite.
+**Plans**: 4 plans (13-01 to 13-04)
+
+Plans:
+- [x] 13-01: Expose Master Data, Catalog, and Party IPC commands in `main.rs` & `api.ts`.
+- [x] 13-02: Connect CatalogView and ProductFormModal to SQLite via Tauri IPC.
+- [x] 13-03: Connect MasterDataView (Categories, Brands, Units) to SQLite via Tauri IPC.
+- [x] 13-04: Connect Customers, KhataView, and Purchasing to SQLite via Tauri IPC.
+

@@ -11,6 +11,7 @@ import {
   Package,
 } from "lucide-react";
 import { ProductFormModal, ProductFormData } from "./ProductFormModal";
+import { api } from "../lib/api";
 
 interface CatalogItem {
   id: string;
@@ -140,44 +141,75 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
     },
   ]);
 
-  const categories = useMemo(
-    () => [
-      { id: "cat_1", name: "Spices & Recipe Mixes" },
-      { id: "cat_2", name: "Cooking Oil & Ghee" },
-      { id: "cat_3", name: "Tea & Beverages" },
-      { id: "cat_4", name: "Snacks & Confectionery" },
-      { id: "cat_5", name: "Rice, Pulses & Flour" },
-    ],
-    []
-  );
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([
+    { id: "cat_1", name: "Spices & Recipe Mixes" },
+    { id: "cat_2", name: "Cooking Oil & Ghee" },
+    { id: "cat_3", name: "Tea & Beverages" },
+    { id: "cat_4", name: "Snacks & Confectionery" },
+    { id: "cat_5", name: "Rice, Pulses & Flour" },
+  ]);
 
-  const brands = useMemo(
-    () => [
-      { id: "b_1", name: "Shan Foods" },
-      { id: "b_2", name: "National Foods" },
-      { id: "b_3", name: "Dalda" },
-      { id: "b_4", name: "Tapal" },
-      { id: "b_5", name: "LU" },
-      { id: "b_6", name: "Al-Rehman Foods" },
-    ],
-    []
-  );
+  const [brands, setBrands] = useState<{ id: string; name: string }[]>([
+    { id: "b_1", name: "Shan Foods" },
+    { id: "b_2", name: "National Foods" },
+    { id: "b_3", name: "Dalda" },
+    { id: "b_4", name: "Tapal" },
+    { id: "b_5", name: "LU" },
+    { id: "b_6", name: "Al-Rehman Foods" },
+  ]);
 
-  const units = useMemo(
-    () => [
-      { id: "u_1", name: "Piece", code: "pc" },
-      { id: "u_2", name: "Kilogram", code: "kg" },
-      { id: "u_3", name: "Liter", code: "ltr" },
-      { id: "u_4", name: "Meter", code: "m" },
-      { id: "u_5", name: "Dozen", code: "dozen" },
-      { id: "u_6", name: "Carton", code: "carton" },
-    ],
-    []
-  );
+  const [units, setUnits] = useState<{ id: string; name: string; code: string }[]>([
+    { id: "u_1", name: "Piece", code: "pc" },
+    { id: "u_2", name: "Kilogram", code: "kg" },
+    { id: "u_3", name: "Liter", code: "ltr" },
+    { id: "u_4", name: "Meter", code: "m" },
+    { id: "u_5", name: "Dozen", code: "dozen" },
+    { id: "u_6", name: "Carton", code: "carton" },
+  ]);
 
-  // Focus scanner search bar on mount
+  const loadData = async () => {
+    try {
+      const [dbProds, dbCats, dbBrands, dbUnits] = await Promise.all([
+        api.listProductsCatalog(200, 0),
+        api.listCategories(),
+        api.listBrands(),
+        api.listUnits(),
+      ]);
+
+      if (dbCats && dbCats.length > 0) {
+        setCategories(dbCats.map((c) => ({ id: c.id, name: c.name })));
+      }
+      if (dbBrands && dbBrands.length > 0) {
+        setBrands(dbBrands.map((b) => ({ id: b.id, name: b.name })));
+      }
+      if (dbUnits && dbUnits.length > 0) {
+        setUnits(dbUnits.map((u) => ({ id: u.id, name: u.name, code: u.code })));
+      }
+
+      if (dbProds && dbProds.length > 0) {
+        const mapped: CatalogItem[] = dbProds.map((p) => ({
+          id: p.product_id,
+          sku: p.sku,
+          name: p.name,
+          nameUr: p.name_ur || undefined,
+          category: p.category_name || "General",
+          brand: p.brand_name || "Generic",
+          unit: p.base_unit_code || "pc",
+          barcode: p.barcode || "",
+          retailPrice: (p.retail_price_paisa || 0) / 100,
+          wholesalePrice: p.wholesale_price_paisa ? p.wholesale_price_paisa / 100 : undefined,
+        }));
+        setProducts(mapped);
+      }
+    } catch (err) {
+      console.warn("Could not load catalog from SQLite, keeping default state:", err);
+    }
+  };
+
+  // Focus scanner search bar on mount & load SQLite data
   useEffect(() => {
     searchInputRef.current?.focus();
+    loadData();
   }, []);
 
   // Filtered product items
@@ -200,61 +232,72 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
     });
   }, [products, search, selectedCategory, selectedBrand]);
 
-  const handleSaveProduct = (formData: ProductFormData) => {
+  const handleSaveProduct = async (formData: ProductFormData) => {
     const catName = categories.find((c) => c.id === formData.categoryId)?.name || "General";
     const brandName = brands.find((b) => b.id === formData.brandId)?.name || "Generic";
 
-    if (formData.id) {
-      // Edit existing
-      setProducts((prev) =>
-        prev.map((item) =>
-          item.id === formData.id
-            ? {
-                ...item,
-                sku: formData.sku,
-                name: formData.name,
-                nameUr: formData.nameUr,
-                category: catName,
-                brand: brandName,
-                unit: formData.baseUnit,
-                barcode: formData.barcode,
-                retailPrice: formData.retailPrice,
-                wholesalePrice: formData.wholesalePrice,
-                packagingUnit: formData.hasPackagingUnit
-                  ? {
-                      name: formData.packUnit || "carton",
-                      factor: formData.packFactor || 24,
-                      barcode: formData.packBarcode,
-                      price: formData.packRetailPrice,
-                    }
-                  : undefined,
-              }
-            : item
-        )
-      );
-    } else {
-      // Add new
-      const newItem: CatalogItem = {
-        id: `prod_${Date.now()}`,
-        sku: formData.sku,
-        name: formData.name,
-        nameUr: formData.nameUr,
-        category: catName,
-        brand: brandName,
-        unit: formData.baseUnit,
-        barcode: formData.barcode,
-        retailPrice: formData.retailPrice,
-        wholesalePrice: formData.wholesalePrice,
-        packagingUnit: formData.hasPackagingUnit
-          ? {
-              name: formData.packUnit || "carton",
-              factor: formData.packFactor || 24,
-              barcode: formData.packBarcode,
-              price: formData.packRetailPrice,
-            }
-          : undefined,
-      };
-      setProducts((prev) => [newItem, ...prev]);
+    try {
+      const unitCode = formData.baseUnit || "pc";
+      const matchedUnit = units.find((u) => u.code.toLowerCase() === unitCode.toLowerCase()) || units[0];
+      const baseUnitId = matchedUnit?.id || "u-pc";
+
+      await api.createProduct({
+        sku: formData.sku.trim(),
+        name: formData.name.trim(),
+        name_ur: formData.nameUr?.trim() || null,
+        category_id: formData.categoryId || null,
+        brand_id: formData.brandId || null,
+        base_unit_id: baseUnitId,
+        barcode: formData.barcode?.trim() || null,
+        retail_price_paisa: Math.round(formData.retailPrice * 100),
+        wholesale_price_paisa: formData.wholesalePrice ? Math.round(formData.wholesalePrice * 100) : null,
+        packaging_units: formData.hasPackagingUnit && formData.packUnit ? [{
+          unit_id: units.find((u) => u.code.toLowerCase() === formData.packUnit?.toLowerCase())?.id || "u-ctn",
+          factor_to_base: (formData.packFactor || 24) * 1000,
+          barcode: formData.packBarcode?.trim() || null,
+          retail_price_paisa: formData.packRetailPrice ? Math.round(formData.packRetailPrice * 100) : null,
+        }] : [],
+      });
+
+      // Reload fresh from SQLite
+      await loadData();
+    } catch (err) {
+      console.error("Failed to persist product to SQLite:", err);
+      // Fallback local memory state
+      if (formData.id) {
+        setProducts((prev) =>
+          prev.map((item) =>
+            item.id === formData.id
+              ? {
+                  ...item,
+                  sku: formData.sku,
+                  name: formData.name,
+                  nameUr: formData.nameUr,
+                  category: catName,
+                  brand: brandName,
+                  unit: formData.baseUnit,
+                  barcode: formData.barcode,
+                  retailPrice: formData.retailPrice,
+                  wholesalePrice: formData.wholesalePrice,
+                }
+              : item
+          )
+        );
+      } else {
+        const newItem: CatalogItem = {
+          id: `prod_${Date.now()}`,
+          sku: formData.sku,
+          name: formData.name,
+          nameUr: formData.nameUr,
+          category: catName,
+          brand: brandName,
+          unit: formData.baseUnit,
+          barcode: formData.barcode,
+          retailPrice: formData.retailPrice,
+          wholesalePrice: formData.wholesalePrice,
+        };
+        setProducts((prev) => [newItem, ...prev]);
+      }
     }
   };
 

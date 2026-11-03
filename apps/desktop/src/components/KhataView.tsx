@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { api } from "../lib/api";
 import {
   Users,
   Building2,
@@ -78,6 +79,53 @@ export const KhataView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"customer" | "vendor">("customer");
   const [searchQuery, setSearchQuery] = useState("");
   const [parties, setParties] = useState<KhataParty[]>(SAMPLE_PARTIES);
+
+  const loadParties = async () => {
+    try {
+      const [custs, vends] = await Promise.all([
+        api.listKhataParties("customer"),
+        api.listKhataParties("vendor"),
+      ]);
+      const combined: KhataParty[] = [];
+      if (custs && custs.length > 0) {
+        custs.forEach((c) => {
+          if (c.id !== "cust-walkin") {
+            combined.push({
+              id: c.id,
+              party_type: "customer",
+              name: c.name,
+              phone: c.phone || "N/A",
+              credit_limit_paisa: c.credit_limit_paisa,
+              balance_paisa: c.balance_paisa,
+              unpaid_invoices_count: c.balance_paisa > 0 ? 1 : 0,
+            });
+          }
+        });
+      }
+      if (vends && vends.length > 0) {
+        vends.forEach((v) => {
+          combined.push({
+            id: v.id,
+            party_type: "vendor",
+            name: v.name,
+            phone: v.phone || "N/A",
+            credit_limit_paisa: v.credit_limit_paisa,
+            balance_paisa: v.balance_paisa,
+            unpaid_invoices_count: v.balance_paisa > 0 ? 1 : 0,
+          });
+        });
+      }
+      if (combined.length > 0) {
+        setParties(combined);
+      }
+    } catch (err) {
+      console.warn("Could not load parties from SQLite, keeping default state:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadParties();
+  }, []);
 
   // Modals
   const [selectedParty, setSelectedParty] = useState<KhataParty | null>(null);

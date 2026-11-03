@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { api } from "../lib/api";
 import {
   Truck,
   Plus,
@@ -77,6 +78,48 @@ export const PurchasingView: React.FC<PurchasingViewProps> = ({ initialTab = "in
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+
+  const loadData = async () => {
+    try {
+      const [vends, prods] = await Promise.all([
+        api.listKhataParties("vendor"),
+        api.listProductsCatalog(100, 0),
+      ]);
+      if (vends && vends.length > 0) {
+        setVendors(
+          vends.map((v) => ({
+            id: v.id,
+            name: v.name,
+            phone: v.phone || undefined,
+            credit_limit_paisa: v.credit_limit_paisa,
+            opening_balance_paisa: 0,
+            current_balance_paisa: v.balance_paisa,
+          }))
+        );
+      }
+      if (prods && prods.length > 0) {
+        setStockBalances(
+          prods.map((p) => ({
+            variant_id: p.variant_id,
+            product_id: p.product_id,
+            sku: p.sku,
+            name: p.name,
+            barcode: p.barcode || undefined,
+            unit_code: p.base_unit_code || "PCS",
+            on_hand_milli: p.stock_on_hand_milli || 0,
+            avg_cost_paisa: Math.round(p.retail_price_paisa * 0.85),
+            total_valuation_paisa: Math.round(((p.stock_on_hand_milli || 0) * (p.retail_price_paisa * 0.85)) / 1000),
+          }))
+        );
+      }
+    } catch (err) {
+      console.warn("Could not load purchasing data from SQLite, keeping default state:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   // Sample data initialized from domain repositories
   const [vendors, setVendors] = useState<Vendor[]>([
@@ -602,20 +645,46 @@ export const PurchasingView: React.FC<PurchasingViewProps> = ({ initialTab = "in
             </div>
 
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
                 const name = newVendorForm.name.trim();
                 if (!name) return;
-                const newV: Vendor = {
-                  id: `v-${Date.now()}`,
-                  name,
-                  phone: newVendorForm.phone.trim() || undefined,
-                  ntn: newVendorForm.ntn.trim() || undefined,
-                  credit_limit_paisa: (newVendorForm.credit_limit_pkr || 500000) * 100,
-                  opening_balance_paisa: (newVendorForm.opening_balance_pkr || 0) * 100,
-                  current_balance_paisa: (newVendorForm.opening_balance_pkr || 0) * 100,
-                };
-                setVendors((prev) => [...prev, newV]);
+                const creditPaisa = (newVendorForm.credit_limit_pkr || 500000) * 100;
+                const openPaisa = (newVendorForm.opening_balance_pkr || 0) * 100;
+
+                try {
+                  const created = await api.createParty({
+                    party_type: "vendor",
+                    name,
+                    phone: newVendorForm.phone.trim() || null,
+                    ntn: newVendorForm.ntn.trim() || null,
+                    credit_limit_paisa: creditPaisa,
+                    opening_balance_paisa: openPaisa,
+                  });
+                  const newV: Vendor = {
+                    id: created.id,
+                    name: created.name,
+                    phone: created.phone || undefined,
+                    ntn: created.ntn || undefined,
+                    credit_limit_paisa: created.credit_limit_paisa,
+                    opening_balance_paisa: created.opening_balance_paisa,
+                    current_balance_paisa: created.opening_balance_paisa,
+                  };
+                  setVendors((prev) => [...prev, newV]);
+                } catch (err) {
+                  console.warn("Failed to create vendor in SQLite, local fallback", err);
+                  const newV: Vendor = {
+                    id: `v-${Date.now()}`,
+                    name,
+                    phone: newVendorForm.phone.trim() || undefined,
+                    ntn: newVendorForm.ntn.trim() || undefined,
+                    credit_limit_paisa: creditPaisa,
+                    opening_balance_paisa: openPaisa,
+                    current_balance_paisa: openPaisa,
+                  };
+                  setVendors((prev) => [...prev, newV]);
+                }
+
                 setNewVendorForm({
                   name: "",
                   phone: "",

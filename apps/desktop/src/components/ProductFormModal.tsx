@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, Sparkles, Box, DollarSign, Barcode as BarcodeIcon, Layers, Plus } from "lucide-react";
+import { api } from "../lib/api";
 
 export interface ProductFormData {
   id?: string;
@@ -198,17 +199,25 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   />
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       const name = newCategoryName.trim();
                       if (name) {
-                        const newCat = { id: `cat-${Date.now()}`, name };
-                        setLocalCategories((prev) => [...prev, newCat]);
-                        setFormData((prev) => ({ ...prev, categoryId: newCat.id }));
+                        try {
+                          const created = await api.createCategory(name);
+                          const newCat = { id: created.id, name: created.name };
+                          setLocalCategories((prev) => [...prev, newCat]);
+                          setFormData((prev) => ({ ...prev, categoryId: newCat.id }));
+                        } catch (err) {
+                          console.warn("Failed to create category in SQLite, using local fallback", err);
+                          const newCat = { id: `cat-${Date.now()}`, name };
+                          setLocalCategories((prev) => [...prev, newCat]);
+                          setFormData((prev) => ({ ...prev, categoryId: newCat.id }));
+                        }
                         setNewCategoryName("");
                         setIsCreatingCategory(false);
                       }
                     }}
-                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-xs"
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
                   >
                     Add
                   </button>
@@ -256,17 +265,25 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   />
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       const name = newBrandName.trim();
                       if (name) {
-                        const newB = { id: `brand-${Date.now()}`, name };
-                        setLocalBrands((prev) => [...prev, newB]);
-                        setFormData((prev) => ({ ...prev, brandId: newB.id }));
+                        try {
+                          const created = await api.createBrand(name);
+                          const newB = { id: created.id, name: created.name };
+                          setLocalBrands((prev) => [...prev, newB]);
+                          setFormData((prev) => ({ ...prev, brandId: newB.id }));
+                        } catch (err) {
+                          console.warn("Failed to create brand in SQLite, using local fallback", err);
+                          const newB = { id: `brand-${Date.now()}`, name };
+                          setLocalBrands((prev) => [...prev, newB]);
+                          setFormData((prev) => ({ ...prev, brandId: newB.id }));
+                        }
                         setNewBrandName("");
                         setIsCreatingBrand(false);
                       }
                     }}
-                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-xs"
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
                   >
                     Add
                   </button>

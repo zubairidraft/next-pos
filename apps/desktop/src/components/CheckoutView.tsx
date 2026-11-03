@@ -164,6 +164,25 @@ export const CheckoutView: React.FC = () => {
   const [newCustPhone, setNewCustPhone] = useState("");
   const [newCustLimit, setNewCustLimit] = useState("25000");
 
+  useEffect(() => {
+    api.listKhataParties("customer")
+      .then((list) => {
+        if (list && list.length > 0) {
+          const mapped = list.map((p) => ({
+            id: p.id === "cust-walkin" ? "" : p.id,
+            name: p.name,
+            phone: p.phone || "",
+            credit_limit_paisa: p.credit_limit_paisa,
+          }));
+          if (!mapped.some((c) => c.id === "")) {
+            mapped.unshift({ id: "", name: "Walk-in Customer", phone: "", credit_limit_paisa: 0 });
+          }
+          setCustomers(mapped);
+        }
+      })
+      .catch((err) => console.warn("Failed to load customers from SQLite:", err));
+  }, []);
+
   // Search and Catalog modal states
   const [searchResults, setSearchResults] = useState<ProductSearchResult[]>([]);
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
@@ -213,28 +232,49 @@ export const CheckoutView: React.FC = () => {
   const discountInputRef = useRef<HTMLInputElement>(null);
   const catalogSearchInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAddNewCustomer = (e: React.FormEvent) => {
+  const handleAddNewCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCustName.trim()) {
       alert("Customer name is required.");
       return;
     }
-    const newId = `cust-${Date.now()}`;
     const limitPaisa = Math.round((parseFloat(newCustLimit) || 0) * 100);
-    const newCustomer = {
-      id: newId,
-      name: newCustName.trim(),
-      phone: newCustPhone.trim(),
-      credit_limit_paisa: limitPaisa,
-    };
-    setCustomers((prev) => [...prev, newCustomer]);
-    setSelectedCustomerId(newId);
-    setSelectedCustomerName(newCustomer.name);
+    try {
+      const created = await api.createParty({
+        party_type: "customer",
+        name: newCustName.trim(),
+        phone: newCustPhone.trim() || null,
+        credit_limit_paisa: limitPaisa,
+        opening_balance_paisa: 0,
+      });
+      const newCustomer = {
+        id: created.id,
+        name: created.name,
+        phone: created.phone || "",
+        credit_limit_paisa: created.credit_limit_paisa,
+      };
+      setCustomers((prev) => [...prev, newCustomer]);
+      setSelectedCustomerId(created.id);
+      setSelectedCustomerName(created.name);
+      setToastMessage(`Customer "${created.name}" created and assigned to cart.`);
+    } catch (err) {
+      console.warn("Failed to create customer in SQLite, using local fallback", err);
+      const newId = `cust-${Date.now()}`;
+      const newCustomer = {
+        id: newId,
+        name: newCustName.trim(),
+        phone: newCustPhone.trim(),
+        credit_limit_paisa: limitPaisa,
+      };
+      setCustomers((prev) => [...prev, newCustomer]);
+      setSelectedCustomerId(newId);
+      setSelectedCustomerName(newCustomer.name);
+      setToastMessage(`Customer "${newCustomer.name}" created and assigned to cart.`);
+    }
     setIsNewCustomerModalOpen(false);
     setNewCustName("");
     setNewCustPhone("");
     setNewCustLimit("25000");
-    setToastMessage(`Customer "${newCustomer.name}" created and assigned to cart.`);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
