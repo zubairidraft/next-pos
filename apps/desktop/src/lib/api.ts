@@ -268,6 +268,35 @@ export interface CreatePurchaseInput {
   user_id?: string | null;
 }
 
+export interface ReceiptLineItem {
+  name: string;
+  name_ur?: string | null;
+  qty_display: string;
+  unit_price_paisa: number;
+  total_paisa: number;
+}
+
+export interface ReceiptPayload {
+  store_name: string;
+  store_name_ur?: string | null;
+  store_address?: string | null;
+  store_phone?: string | null;
+  ntn?: string | null;
+  invoice_no: string;
+  date_time: string;
+  cashier_name: string;
+  customer_name?: string | null;
+  items: ReceiptLineItem[];
+  subtotal_paisa: number;
+  discount_paisa: number;
+  tax_paisa: number;
+  grand_total_paisa: number;
+  payments: [string, number][]; // [method, amount_paisa]
+  change_paisa: number;
+  footer_note?: string | null;
+  footer_note_ur?: string | null;
+}
+
 export interface CloudSyncResult {
   success: boolean;
   synced_count: number;
@@ -355,4 +384,14 @@ export const api = {
     callTauri<string>("restore_backup", { password, backupFile }),
 
   syncToCloud: () => callTauri<CloudSyncResult>("sync_to_cloud"),
+
+  listSystemPrinters: () => callTauri<string[]>("list_system_printers"),
+  printRawEscpos: (printerName?: string, rawBytes?: number[]) =>
+    callTauri<void>("print_raw_escpos", { printerName: printerName || null, rawBytes: rawBytes || [] }),
+  kickCashDrawer: (printerName?: string) =>
+    callTauri<void>("kick_cash_drawer", { printerName: printerName || null }),
+  cutPrinterPaper: (printerName?: string) =>
+    callTauri<void>("cut_printer_paper", { printerName: printerName || null }),
+  printSaleReceipt: (payload: ReceiptPayload, printerName?: string, width = "58mm") =>
+    callTauri<void>("print_sale_receipt", { printerName: printerName || null, width, payload }),
 };

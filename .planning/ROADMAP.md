@@ -19,6 +19,7 @@ Next POS is delivered across 12 focused implementation phases (corresponding to 
 - [ ] **Phase 11: Resilience Testing, Security Audit & Pilot Deployment** - Power-pull resilience testing, performance benchmarks with 1M rows, Urdu operator training manual, and 5-shop pilot rollout.
 - [ ] **Phase 12: Pilot Hardening & General Availability Launch** - Resolution of shop feedback, final hardware compatibility certifications, dealer portal, and production Windows release.
 - [x] **Phase 13: Core Data Wiring & SQLite Persistence** - Expose Rust master data and catalog IPC commands, wire Catalog, Master Data, Khata, and Purchasing frontend to real encrypted SQLite database.
+- [x] **Phase 14: Hardware Peripherals & ESC/POS Printing** - Native ESC/POS thermal receipt printing, Windows raw print spooler, cash drawer kick pulse, and printer diagnostic manager.
 
 ---
 
@@ -233,4 +234,20 @@ Plans:
 - [x] 13-02: Connect CatalogView and ProductFormModal to SQLite via Tauri IPC.
 - [x] 13-03: Connect MasterDataView (Categories, Brands, Units) to SQLite via Tauri IPC.
 - [x] 13-04: Connect Customers, KhataView, and Purchasing to SQLite via Tauri IPC.
+
+### Phase 14: Hardware Peripherals & ESC/POS Printing
+**Goal**: Connect physical 58mm/80mm thermal receipt printers via Windows raw print spooling (`winspool`) and network sockets (`9100`), trigger RJ11 cash drawers, and provide native 1-click silent receipt printing from POS Checkout.  
+**Depends on**: Phase 13  
+**Requirements**: HARDWARE-PRINT-01, DRAWER-KICK-01, PRINTER-SETTINGS-01  
+**Success Criteria**:
+  1. Cashiers can print sales receipts silently to USB/Network thermal printers with zero browser dialogs.
+  2. Cash drawer solenoid trigger pulse (`ESC p 0 25 250`) executes upon cash checkout.
+  3. `PrinterSettingsModal` lists available Windows printers, tests paper cutting, kicks the drawer, and tests diagnostic print streams.
+  4. Both 58mm (32 col) and 80mm (48 col) paper roll profiles format properly with store header, item table, and bilingual footer.
+**Plans**: 3 plans (14-01 to 14-03)
+
+Plans:
+- [x] 14-01: Implement raw ESC/POS Windows print spooler and network printer service in Rust (`src-tauri`).
+- [x] 14-02: Expose printer Tauri commands (`list_printers`, `print_raw_escpos`, `print_sale_receipt`, `kick_cash_drawer`) and wire `api.ts`.
+- [x] 14-03: Wire `PrinterSettingsModal`, `ReceiptModal`, and POS `CheckoutView` silent receipt printing & drawer kick.
 

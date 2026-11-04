@@ -1,6 +1,8 @@
 //! ESC/POS thermal receipt engine with 1-bit raster graphics & hardware cash drawer kick.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReceiptWidth {
     Width58mm, // 384 dots, ~32 columns
     Width80mm, // 576 dots, ~48 columns
@@ -29,7 +31,7 @@ pub enum EscPosAlign {
     Right = 2,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReceiptLineItem {
     pub name: String,
     pub name_ur: Option<String>,
@@ -38,7 +40,7 @@ pub struct ReceiptLineItem {
     pub total_paisa: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReceiptPayload {
     pub store_name: String,
     pub store_name_ur: Option<String>,

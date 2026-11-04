@@ -1,11 +1,11 @@
 ---
 gsd_state_version: '1.0'
-status: complete
+status: completed
 progress:
-  total_phases: 13
-  completed_phases: 13
-  total_plans: 52
-  completed_plans: 52
+  total_phases: 14
+  completed_phases: 14
+  total_plans: 55
+  completed_plans: 55
   percent: 100
 ---
 
@@ -16,13 +16,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-28)
 
 **Core value:** Uninterrupted, zero-data-loss local retail operation that runs 100% offline with sub-100ms scan-to-cart performance and immutable, audited transaction posting.  
-**Current focus:** Completed Phase 13 - Core Data Wiring & SQLite Persistence
+**Current focus:** Phase 14 - Hardware Peripherals & ESC/POS Printing (Completed)
 
 ## Current Position
 
-Phase: 13 of 13 (Core Data Wiring & SQLite Persistence) — COMPLETED  
-Status: All 13 Phases and 52 Plans completed. Live SQLite database persistence wired across Catalog, Master Data, Khata, Purchasing, and Checkout views.  
-Last activity: 2026-11-03 — Executed Phase 13: Implemented 12 Tauri IPC commands for Master Data and Catalog, wired React forms to SQLite with automatic refresh and typed IPC interfaces.
+Phase: 14 of 14 (Hardware Peripherals & ESC/POS Printing) — COMPLETED  
+Status: Windows raw print spooler (`winspool.drv`), network printer TCP streaming, cash drawer kick pulse, printer diagnostics modal, and silent receipt printing from checkout wired and verified.  
+Last activity: 2026-11-04 — Completed Phase 14: Integrating physical thermal printer and cash drawer controls.
 
 Progress: [████████████] 100%
 
@@ -49,8 +49,8 @@ Progress: [████████████] 100%
 | Phase 10: Licensing, Updates & Industry Packs | Completed | 4/4 | Complete |
 | Phase 11: Resilience Testing, Security Audit & Pilot | Completed | 4/4 | Complete |
 | Phase 12: Pilot Hardening & GA Launch | Completed | 4/4 | Complete |
-| Phase 11: Resilience Testing, Security Audit & Pilot Deployment | Planned | 0/4 | Complete |
-| Phase 12: Pilot Hardening & General Availability Launch | Planned | 0/4 | Complete |
+| Phase 13: Core Data Wiring & SQLite Persistence | Completed | 4/4 | Complete |
+| Phase 14: Hardware Peripherals & ESC/POS Printing | Completed | 3/3 | Complete |
 
 ## Blockers & Risks Resolved
 

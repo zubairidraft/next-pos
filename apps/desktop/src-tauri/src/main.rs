@@ -1,6 +1,8 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod printer;
+
 use chrono::Utc;
 use pos_core::auth::{Role, UserRepo, UserSession, UserSummary};
 use pos_core::backup::CryptoBackupService;
@@ -13,6 +15,7 @@ use pos_core::domain::{
     PostSaleRequest, ProductSearchResult, PurchaseInvoice, PurchaseRepo, ReturnRepo, SaleRepo,
     SettingsRepo, ShiftRepo, Unit, UnitRepo,
 };
+use pos_core::hardware::{ReceiptPayload, ReceiptWidth};
 use pos_core::error::PosError;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -688,6 +691,46 @@ async fn sync_to_cloud(state: State<'_, AppState>) -> Result<CloudSyncResult, St
     })
 }
 
+#[tauri::command]
+fn list_system_printers() -> Result<Vec<String>, String> {
+    Ok(printer::list_system_printers())
+}
+
+#[tauri::command]
+fn print_raw_escpos(
+    printer_name: Option<String>,
+    raw_bytes: Vec<u8>,
+) -> Result<(), String> {
+    printer::print_bytes(printer_name.as_deref(), "ESC/POS Stream", &raw_bytes)
+        .map_err(|e| format!("Printing failed: {}", e))
+}
+
+#[tauri::command]
+fn kick_cash_drawer(printer_name: Option<String>) -> Result<(), String> {
+    printer::kick_drawer(printer_name.as_deref())
+        .map_err(|e| format!("Drawer kick failed: {}", e))
+}
+
+#[tauri::command]
+fn cut_printer_paper(printer_name: Option<String>) -> Result<(), String> {
+    printer::cut_paper(printer_name.as_deref())
+        .map_err(|e| format!("Paper cut failed: {}", e))
+}
+
+#[tauri::command]
+fn print_sale_receipt(
+    printer_name: Option<String>,
+    width: Option<String>,
+    payload: ReceiptPayload,
+) -> Result<(), String> {
+    let roll_width = match width.as_deref() {
+        Some("80mm") => ReceiptWidth::Width80mm,
+        _ => ReceiptWidth::Width58mm,
+    };
+    printer::print_sale_receipt(printer_name.as_deref(), roll_width, &payload)
+        .map_err(|e| format!("Receipt printing failed: {}", e))
+}
+
 fn main() {
     println!(
         "Next POS Desktop Shell - initializing with pos-core v{}",
@@ -741,7 +784,12 @@ fn main() {
             export_backup,
             restore_backup,
             sync_to_cloud,
-            reset_store_account
+            reset_store_account,
+            list_system_printers,
+            print_raw_escpos,
+            kick_cash_drawer,
+            cut_printer_paper,
+            print_sale_receipt
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

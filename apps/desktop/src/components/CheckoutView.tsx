@@ -881,6 +881,13 @@ export const CheckoutView: React.FC = () => {
       setIsPaymentOpen(false);
       setIsReceiptOpen(true);
       showToast(`Sale Posted! ${completed.doc_no} (${formatPkr(completed.grand_total_paisa)})`);
+
+      // Trigger automatic cash drawer kick if cash was tendered
+      const autoKick = localStorage.getItem("pos_auto_kick_drawer");
+      if (autoKick !== "false" && tenders.some((t) => t.method === "cash")) {
+        const printerName = localStorage.getItem("pos_printer_name") || undefined;
+        api.kickCashDrawer(printerName).catch((e) => console.warn("Auto drawer kick failed:", e));
+      }
     } catch (err: any) {
       console.warn("Real core post_sale failed or running in web fallback:", err);
       const docNo = `INV-${new Date().toISOString().slice(0, 7).replace("-", "")}-${Math.floor(
@@ -909,6 +916,13 @@ export const CheckoutView: React.FC = () => {
       setIsPaymentOpen(false);
       setIsReceiptOpen(true);
       showToast(`Sale Posted! ${docNo} (${formatPkr(grandTotalPaisa)})`);
+
+      // Trigger automatic cash drawer kick if cash was tendered (fallback mode)
+      const autoKick = localStorage.getItem("pos_auto_kick_drawer");
+      if (autoKick !== "false" && tenders.some((t) => t.method === "cash")) {
+        const printerName = localStorage.getItem("pos_printer_name") || undefined;
+        api.kickCashDrawer(printerName).catch((e) => console.warn("Auto drawer kick failed:", e));
+      }
     }
   };
 

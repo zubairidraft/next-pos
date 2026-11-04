@@ -1,6 +1,7 @@
-import React, { useEffect } from "react";
-import { Printer, X, CheckCircle2, RotateCcw } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Printer, X, CheckCircle2, RotateCcw, Loader2 } from "lucide-react";
 import { CartLineItem, SaleSummary } from "../lib/contracts";
+import { api, ReceiptPayload } from "../lib/api";
 
 interface ReceiptModalProps {
   isOpen: boolean;
@@ -21,6 +22,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   storeAddress = "Main Commercial Market, Lahore, Pakistan",
   storePhone = "+92 300 1234567",
 }) => {
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [printSuccess, setPrintSuccess] = useState<string | null>(null);
+
   // Keyboard shortcuts: Enter / P to Print, Esc to Close
   useEffect(() => {
     if (!isOpen) return;
@@ -37,14 +41,52 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen]);
+  }, [isOpen, sale, lines]);
 
   if (!isOpen || !sale) return null;
 
   const formatPkr = (paisa: number) => `PKR ${(paisa / 100).toFixed(2)}`;
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    setIsPrinting(true);
+    setPrintSuccess(null);
+    try {
+      const printerName = localStorage.getItem("pos_printer_name") || undefined;
+      const rollWidth = (localStorage.getItem("pos_roll_width") as "58mm" | "80mm") || "58mm";
+
+      const payload: ReceiptPayload = {
+        store_name: storeName,
+        store_address: storeAddress,
+        store_phone: storePhone,
+        invoice_no: sale.doc_no,
+        date_time: sale.occurred_at || new Date().toLocaleString(),
+        cashier_name: "Cashier",
+        customer_name: sale.customer_name || "Walk-in Customer",
+        items: lines.map((l) => ({
+          name: l.product_name,
+          qty_display: `${l.qty_milli / 1000} PC`,
+          unit_price_paisa: l.unit_price_paisa,
+          total_paisa:
+            Math.round((l.qty_milli * l.unit_price_paisa) / 1000) - l.discount_paisa,
+        })),
+        subtotal_paisa: sale.subtotal_paisa,
+        discount_paisa: sale.discount_paisa,
+        tax_paisa: sale.tax_paisa,
+        grand_total_paisa: sale.grand_total_paisa,
+        payments: [["cash", sale.total_paid_paisa]],
+        change_paisa: sale.change_paisa,
+        footer_note: "THANK YOU FOR YOUR PURCHASE!",
+      };
+
+      await api.printSaleReceipt(payload, printerName, rollWidth);
+      setPrintSuccess("Printed via direct ESC/POS hardware spooler!");
+      setTimeout(() => setPrintSuccess(null), 3000);
+    } catch (err) {
+      console.warn("Hardware print failed, falling back to browser window.print():", err);
+      window.print();
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   return (
@@ -171,6 +213,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </div>
         </div>
 
+        {printSuccess && (
+          <div className="px-5 py-2 bg-emerald-500/10 border-t border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+            <span>{printSuccess}</span>
+          </div>
+        )}
+
         {/* Modal Bottom Actions */}
         <div className="p-4 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
           <button
@@ -183,11 +232,16 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
           <button
             onClick={handlePrint}
+            disabled={isPrinting}
             autoFocus
-            className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5"
+            className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5"
           >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print Receipt (Enter)</span>
+            {isPrinting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Printer className="w-3.5 h-3.5" />
+            )}
+            <span>{isPrinting ? "Printing..." : "Print Receipt (Enter)"}</span>
           </button>
         </div>
       </div>

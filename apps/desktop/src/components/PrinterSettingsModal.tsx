@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   X,
@@ -9,6 +9,7 @@ import {
   Copy,
   Sliders,
 } from "lucide-react";
+import { api, ReceiptPayload } from "../lib/api";
 
 interface PrinterSettingsModalProps {
   isOpen: boolean;
@@ -21,61 +22,128 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const [rollWidth, setRollWidth] = useState<"58mm" | "80mm">("58mm");
-  const [autoKickDrawer, setAutoKickDrawer] = useState(true);
-  const [autoCutPaper, setAutoCutPaper] = useState(true);
+  const [printers, setPrinters] = useState<string[]>([]);
+  const [selectedPrinter, setSelectedPrinter] = useState<string>(() => {
+    return localStorage.getItem("pos_printer_name") || "";
+  });
+  const [rollWidth, setRollWidth] = useState<"58mm" | "80mm">(() => {
+    return (localStorage.getItem("pos_roll_width") as any) || "58mm";
+  });
+  const [autoKickDrawer, setAutoKickDrawer] = useState(() => {
+    const val = localStorage.getItem("pos_auto_kick_drawer");
+    return val !== null ? val === "true" : true;
+  });
+  const [autoCutPaper, setAutoCutPaper] = useState(() => {
+    const val = localStorage.getItem("pos_auto_cut_paper");
+    return val !== null ? val === "true" : true;
+  });
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [lastStreamBytes, setLastStreamBytes] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (isOpen) {
+      api.listSystemPrinters()
+        .then((list) => {
+          setPrinters(list);
+          if (!selectedPrinter && list.length > 0) {
+            setSelectedPrinter(list[0]);
+          }
+        })
+        .catch((e) => console.warn("Failed to list printers:", e));
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  const handleTestDrawerKick = () => {
-    // ESC p 0 25 250 (1B 70 00 19 FA)
+  const handleTestDrawerKick = async () => {
     const kickHex = "1B 70 00 19 FA";
-    setLastStreamBytes(`[Drawer Kick] ${kickHex}`);
-    setStatusMsg(t("printer.success_drawer"));
+    setLastStreamBytes(`[Drawer Kick Pulse] ${kickHex}`);
+    try {
+      await api.kickCashDrawer(selectedPrinter || undefined);
+      setStatusMsg("Cash drawer kick pulse sent to " + (selectedPrinter || "Default Printer") + "!");
+    } catch (err: any) {
+      setStatusMsg("Drawer kick: " + (err?.message || String(err)));
+    }
     setTimeout(() => setStatusMsg(null), 4000);
   };
 
-  const handleTestCutPaper = () => {
-    // GS V 66 0 (1D 56 42 00)
+  const handleTestCutPaper = async () => {
     const cutHex = "1D 56 42 00";
-    setLastStreamBytes(`[Paper Cut] ${cutHex}`);
-    setStatusMsg(t("printer.cut_paper") + " (GS V 66 0)");
+    setLastStreamBytes(`[Paper Cut Command] ${cutHex}`);
+    try {
+      await api.cutPrinterPaper(selectedPrinter || undefined);
+      setStatusMsg("Paper cut command sent to " + (selectedPrinter || "Default Printer") + "!");
+    } catch (err: any) {
+      setStatusMsg("Paper cut: " + (err?.message || String(err)));
+    }
     setTimeout(() => setStatusMsg(null), 4000);
   };
 
-  const handleTestPrintReceipt = () => {
-    const stream = [
-      "1B 40", // ESC @ (init)
-      "1B 61 01", // Center
-      "1B 45 01", // Bold on
-      "41 6C 2D 4D 61 64 69 6E 61 20 53 75 70 65 72 73 74 6F 72 65", // Al-Madina Superstore
-      "0A", // LF
-      "1D 76 30 00 04 00 01 00 FF 00 AA 55", // 1-bit Urdu Raster header sample
-      "1B 61 00", // Left
-      "1B 45 00", // Bold off
-      "49 6E 76 6F 69 63 65 3A 20 49 4E 56 2D 32 30 32 36 31 30 2D 30 30 34 32", // Invoice: INV-202610-0042
-      "0A",
-      "2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D 2D", // ----------------
-      "0A",
-      "54 61 70 61 6C 20 54 65 61 20 34 35 30 67 20 20 20 20 50 4B 52 20 36 32 30", // Tapal Tea 450g    PKR 620
-      "0A",
-      "44 61 6C 64 61 20 4F 69 6C 20 31 4C 20 20 20 20 20 20 50 4B 52 20 35 34 30", // Dalda Oil 1L     PKR 540
-      "0A",
-      "3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D 3D", // ================
-      "0A",
-      "1B 45 01", // Bold
-      "54 4F 54 41 4C 3A 20 20 20 20 20 20 20 20 20 20 20 50 4B 52 20 31 2C 31 36 30", // TOTAL: PKR 1,160
-      "0A",
-      "1B 45 00",
-      "1B 70 00 19 FA", // Drawer kick
-      "1D 56 42 00", // Cut paper
-    ].join(" ");
+  const handleTestPrintReceipt = async () => {
+    const testPayload: ReceiptPayload = {
+      store_name: "Al-Madina Superstore",
+      store_name_ur: "المدینہ سپر سٹور",
+      store_address: "Main Commercial Market, Lahore, Pakistan",
+      store_phone: "0300-1234567",
+      ntn: "1234567-8",
+      invoice_no: "TEST-0001",
+      date_time: new Date().toLocaleString(),
+      cashier_name: "Admin",
+      customer_name: "Walk-in Customer",
+      items: [
+        {
+          name: "Tapal Danedar Tea 450g",
+          name_ur: "ٹپال دانے دار چائے",
+          qty_display: "1 PC",
+          unit_price_paisa: 62000,
+          total_paisa: 62000,
+        },
+        {
+          name: "Dalda Fortified Cooking Oil 1L",
+          name_ur: "ڈالڈا کوکنگ آئل",
+          qty_display: "1 PC",
+          unit_price_paisa: 54000,
+          total_paisa: 54000,
+        },
+      ],
+      subtotal_paisa: 116000,
+      discount_paisa: 0,
+      tax_paisa: 0,
+      grand_total_paisa: 116000,
+      payments: [["cash", 116000]],
+      change_paisa: 0,
+      footer_note: "ESC/POS Thermal Hardware Test",
+      footer_note_ur: "کاروبار پی او ایس میں خوش آمدید",
+    };
 
-    setLastStreamBytes(`[ESC/POS ${rollWidth} Stream] ${stream}`);
-    setStatusMsg(t("printer.success_test"));
+    try {
+      await api.printSaleReceipt(testPayload, selectedPrinter || undefined, rollWidth);
+      setStatusMsg("Test receipt sent directly to " + (selectedPrinter || "Default Printer") + "!");
+    } catch (err: any) {
+      setStatusMsg("Hardware print failed: " + (err?.message || String(err)));
+    }
+    setLastStreamBytes(`[ESC/POS ${rollWidth} Stream] Sent to ${selectedPrinter || "Default Printer"}`);
     setTimeout(() => setStatusMsg(null), 4000);
+  };
+
+  const handleSelectPrinter = (p: string) => {
+    setSelectedPrinter(p);
+    localStorage.setItem("pos_printer_name", p);
+  };
+
+  const handleSelectRollWidth = (w: "58mm" | "80mm") => {
+    setRollWidth(w);
+    localStorage.setItem("pos_roll_width", w);
+  };
+
+  const handleToggleAutoKick = (val: boolean) => {
+    setAutoKickDrawer(val);
+    localStorage.setItem("pos_auto_kick_drawer", String(val));
+  };
+
+  const handleToggleAutoCut = (val: boolean) => {
+    setAutoCutPaper(val);
+    localStorage.setItem("pos_auto_cut_paper", String(val));
   };
 
   const copyToClipboard = () => {
@@ -120,6 +188,34 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
             </div>
           )}
 
+          {/* Hardware Printer Selection */}
+          <div>
+            <label className="text-xs font-semibold text-slate-300 mb-2 block flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Printer className="w-4 h-4 text-emerald-400" />
+                <span>Installed Thermal Printer (Windows Spooler / Network)</span>
+              </span>
+              <span className="text-[10px] text-slate-400">
+                {printers.length} printer{printers.length === 1 ? "" : "s"} detected
+              </span>
+            </label>
+            <select
+              value={selectedPrinter}
+              onChange={(e) => handleSelectPrinter(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
+            >
+              <option value="">-- Windows Default Printer --</option>
+              {printers.map((prn) => (
+                <option key={prn} value={prn}>
+                  {prn}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Bypasses Windows graphics rasterizer via RAW spooling. Supports network printers (e.g. 192.168.1.100:9100).
+            </p>
+          </div>
+
           {/* Roll Width Selection */}
           <div>
             <label className="text-xs font-semibold text-slate-300 mb-2 block flex items-center gap-1.5">
@@ -129,7 +225,7 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => setRollWidth("58mm")}
+                onClick={() => handleSelectRollWidth("58mm")}
                 className={`p-3.5 rounded-xl border text-left transition ${
                   rollWidth === "58mm"
                     ? "bg-emerald-600/20 border-emerald-500 text-white"
@@ -142,7 +238,7 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
 
               <button
                 type="button"
-                onClick={() => setRollWidth("80mm")}
+                onClick={() => handleSelectRollWidth("80mm")}
                 className={`p-3.5 rounded-xl border text-left transition ${
                   rollWidth === "80mm"
                     ? "bg-emerald-600/20 border-emerald-500 text-white"
@@ -162,7 +258,7 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
               <input
                 type="checkbox"
                 checked={autoKickDrawer}
-                onChange={(e) => setAutoKickDrawer(e.target.checked)}
+                onChange={(e) => handleToggleAutoKick(e.target.checked)}
                 className="w-4 h-4 accent-emerald-500 rounded"
               />
             </label>
@@ -171,7 +267,7 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
               <input
                 type="checkbox"
                 checked={autoCutPaper}
-                onChange={(e) => setAutoCutPaper(e.target.checked)}
+                onChange={(e) => handleToggleAutoCut(e.target.checked)}
                 className="w-4 h-4 accent-emerald-500 rounded"
               />
             </label>
