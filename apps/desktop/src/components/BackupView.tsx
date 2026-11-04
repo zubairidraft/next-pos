@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ShieldAlert,
@@ -14,53 +14,37 @@ import {
   Cloud,
   CheckCircle2,
 } from "lucide-react";
-import { api } from "../lib/api";
-
-interface SnapshotItem {
-  filename: string;
-  size_kb: number;
-  created_at: string;
-  status: "valid" | "corrupt";
-}
+import { api, SnapshotInfo } from "../lib/api";
 
 export function BackupView() {
   const { t } = useTranslation();
 
-  const [snapshots, setSnapshots] = useState<SnapshotItem[]>([
-    {
-      filename: "snapshot_20261029_163000.kdb",
-      size_kb: 4820,
-      created_at: "2026-10-29 16:30:00 (30 mins ago)",
-      status: "valid",
-    },
-    {
-      filename: "snapshot_20261029_160000.kdb",
-      size_kb: 4810,
-      created_at: "2026-10-29 16:00:00 (1 hour ago)",
-      status: "valid",
-    },
-    {
-      filename: "snapshot_20261029_153000.kdb",
-      size_kb: 4790,
-      created_at: "2026-10-29 15:30:00 (1.5 hours ago)",
-      status: "valid",
-    },
-    {
-      filename: "snapshot_20261029_150000.kdb",
-      size_kb: 4750,
-      created_at: "2026-10-29 15:00:00 (2 hours ago)",
-      status: "valid",
-    },
-  ]);
-
+  const [snapshots, setSnapshots] = useState<SnapshotInfo[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportPassword, setExportPassword] = useState("");
   const [backupPassword, setBackupPassword] = useState("");
+  const [backupFilePath, setBackupFilePath] = useState("");
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
+  const [bannerMsg, setBannerMsg] = useState<string | null>(null);
 
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
   const [cloudSyncMsg, setCloudSyncMsg] = useState<string | null>(null);
+
+  const loadSnapshots = async () => {
+    try {
+      const list = await api.listDatabaseSnapshots();
+      setSnapshots(list);
+    } catch (e) {
+      console.warn("Failed to load snapshots:", e);
+    }
+  };
+
+  useEffect(() => {
+    loadSnapshots();
+  }, []);
 
   const handleSyncToCloud = async () => {
     setIsSyncingCloud(true);
@@ -75,42 +59,60 @@ export function BackupView() {
     }
   };
 
-  const handleCreateSnapshot = () => {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString();
-    const newSnapshot: SnapshotItem = {
-      filename: `snapshot_${now.toISOString().replace(/[-:T.]/g, "").slice(0, 14)}.kdb`,
-      size_kb: 4830,
-      created_at: `Just now (${timeStr})`,
-      status: "valid",
-    };
-    setSnapshots([newSnapshot, ...snapshots]);
-    alert("Live snapshot created successfully using non-blocking SQLite VACUUM INTO.");
+  const handleCreateSnapshot = async () => {
+    try {
+      const snap = await api.createLiveSnapshot();
+      setBannerMsg(`Live VACUUM snapshot created: ${snap.filename} (${(snap.file_size_bytes / 1024).toFixed(1)} KB)`);
+      loadSnapshots();
+      setTimeout(() => setBannerMsg(null), 5000);
+    } catch (err: any) {
+      alert("Snapshot creation failed: " + (err?.message || String(err)));
+    }
   };
 
-  const handleExportBackup = () => {
+  const handleExportBackup = async () => {
+    if (!exportPassword || exportPassword.length < 8) {
+      alert("Please provide a secure backup passphrase of at least 8 characters.");
+      return;
+    }
     setIsExporting(true);
-    setTimeout(() => {
+    try {
+      const msg = await api.exportBackup(exportPassword);
+      setBannerMsg(msg);
+      setShowExportModal(false);
+      setExportPassword("");
+      setTimeout(() => setBannerMsg(null), 5000);
+    } catch (err: any) {
+      alert("Backup export failed: " + (err?.message || String(err)));
+    } finally {
       setIsExporting(false);
-      alert("Encrypted standalone backup exported successfully as: backup_20261029_verified.kpos\nChecksum: 9e3779b97f4a7c15 (AES Keystream encrypted)");
-    }, 800);
+    }
   };
 
-  const handleExecuteRestore = () => {
+  const handleExecuteRestore = async () => {
     if (!backupPassword) {
-      alert("Please enter the backup decryption key / passphrase.");
+      alert("Please enter the backup decryption passphrase.");
+      return;
+    }
+    if (!backupFilePath.trim()) {
+      alert("Please provide the full path to the .kpos backup file.");
       return;
     }
     setIsRestoring(true);
-    setRestoreStatus("Verifying package checksum and SQLite integrity...");
-
-    setTimeout(() => {
-      setIsRestoring(false);
+    setRestoreStatus("Verifying Argon2id password, cryptographic checksum and SQLite tables...");
+    try {
+      const res = await api.restoreBackup(backupPassword, backupFilePath.trim());
+      alert(res);
       setShowRestoreModal(false);
       setBackupPassword("");
+      setBackupFilePath("");
       setRestoreStatus(null);
-      alert("Database restore completed successfully! Safety copy created at live.pre_restore_safety.");
-    }, 1200);
+      loadSnapshots();
+    } catch (err: any) {
+      alert("Restore failed: " + (err?.message || String(err)));
+    } finally {
+      setIsRestoring(false);
+    }
   };
 
   return (
@@ -136,12 +138,12 @@ export function BackupView() {
             Snapshot Now
           </button>
           <button
-            onClick={handleExportBackup}
+            onClick={() => setShowExportModal(true)}
             disabled={isExporting}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition"
           >
             <Download className="w-3.5 h-3.5" />
-            {isExporting ? "Exporting..." : "Export to USB (.kpos)"}
+            <span>Export to USB (.kpos)</span>
           </button>
           <button
             onClick={() => setShowRestoreModal(true)}
@@ -152,6 +154,13 @@ export function BackupView() {
           </button>
         </div>
       </div>
+
+      {bannerMsg && (
+        <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{bannerMsg}</span>
+        </div>
+      )}
 
       {/* Supabase Multi-Store Cloud Sync Banner */}
       <div className="bg-gradient-to-r from-emerald-50 via-white to-slate-50 dark:from-emerald-950/40 dark:via-slate-900 dark:to-slate-900 border border-emerald-500/30 rounded-2xl p-5 shadow-sm">
@@ -261,34 +270,98 @@ export function BackupView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
-              {snapshots.map((s, idx) => (
-                <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                  <td className="py-2.5 font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
-                    <Database className="w-3.5 h-3.5 text-slate-400" />
-                    {s.filename}
-                  </td>
-                  <td className="py-2.5 text-slate-700 dark:text-slate-300">{s.created_at}</td>
-                  <td className="py-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{s.size_kb} KB</td>
-                  <td className="py-2.5 text-center">
-                    <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-                      <CheckCircle className="w-3 h-3" />
-                      Verified
-                    </span>
-                  </td>
-                  <td className="py-2.5 text-right">
-                    <button
-                      onClick={() => alert(`Selected snapshot ${s.filename} for recovery verification`)}
-                      className="text-xs text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white underline underline-offset-2"
-                    >
-                      Verify
-                    </button>
+              {snapshots.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-slate-400">
+                    No snapshots recorded yet. Click "Snapshot Now" to create a live SQLite backup.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                snapshots.map((s, idx) => (
+                  <tr key={s.path || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                      <Database className="w-3.5 h-3.5 text-slate-400" />
+                      {s.filename}
+                    </td>
+                    <td className="py-2.5 text-slate-700 dark:text-slate-300">
+                      {new Date(s.created_at).toLocaleString()}
+                    </td>
+                    <td className="py-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
+                      {(s.file_size_bytes / 1024).toFixed(1)} KB
+                    </td>
+                    <td className="py-2.5 text-center">
+                      <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                        <CheckCircle className="w-3 h-3" />
+                        {s.is_valid ? "Valid WAL Replica" : "Pending"}
+                      </span>
+                    </td>
+                    <td className="py-2.5 text-right">
+                      <button
+                        onClick={() => {
+                          setBackupFilePath(s.path);
+                          setShowRestoreModal(true);
+                        }}
+                        className="text-xs text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 font-semibold underline underline-offset-2"
+                      >
+                        Restore This
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Export Database Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl border border-emerald-200 dark:border-emerald-500/30">
+                <Lock className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Encrypted Standalone Backup (.kpos)</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Argon2id Key Derivation + SQLCipher Export</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Export an encrypted, standalone single-file archive of the entire database. You will need this passphrase to restore transactions on any other PC.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Set Backup Passphrase (min 8 chars)</label>
+              <input
+                type="password"
+                value={exportPassword}
+                onChange={(e) => setExportPassword(e.target.value)}
+                placeholder="Enter strong passphrase..."
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <button
+                onClick={() => setShowExportModal(false)}
+                disabled={isExporting}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExportBackup}
+                disabled={isExporting}
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition"
+              >
+                {isExporting ? "Encrypting..." : "Create Backup (.kpos)"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Restore Database Modal */}
       {showRestoreModal && (
@@ -307,6 +380,17 @@ export function BackupView() {
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
               Restoring from a <code className="text-emerald-600 dark:text-emerald-400 font-mono">.kpos</code> backup package will replace current transactions. A pre-restore safety copy (<code className="text-slate-500">.pre_restore_safety</code>) will automatically be created before any changes take effect.
             </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Backup File Path (.kpos / .kdb)</label>
+              <input
+                type="text"
+                value={backupFilePath}
+                onChange={(e) => setBackupFilePath(e.target.value)}
+                placeholder="C:\path\to\backup_20261104.kpos"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 font-mono"
+              />
+            </div>
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Backup Decryption Passphrase</label>

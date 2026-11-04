@@ -138,15 +138,99 @@ export interface KhataStatement {
 }
 
 export interface FinancialSummary {
+  start_date: string;
+  end_date: string;
   gross_sales_paisa: number;
-  net_sales_paisa: number;
   discounts_paisa: number;
-  taxes_paisa: number;
+  tax_paisa: number;
+  net_sales_paisa: number;
   cogs_paisa: number;
   gross_profit_paisa: number;
+  gross_margin_percent: number;
   sales_count: number;
-  returns_count: number;
-  returns_paisa: number;
+  total_units_sold_milli: number;
+  average_ticket_paisa: number;
+  tender_breakdown: [string, number][];
+}
+
+export interface CategoryPerformance {
+  category_id: string;
+  category_name: string;
+  category_name_ur?: string | null;
+  qty_sold_milli: number;
+  revenue_paisa: number;
+  cogs_paisa: number;
+  gross_profit_paisa: number;
+  gross_margin_percent: number;
+}
+
+export interface TopProduct {
+  variant_id: string;
+  sku: string;
+  name: string;
+  name_ur?: string | null;
+  qty_sold_milli: number;
+  revenue_paisa: number;
+  cogs_paisa: number;
+  gross_profit_paisa: number;
+}
+
+export interface InventoryValuation {
+  total_variants_count: number;
+  total_stock_milli: number;
+  total_cost_valuation_paisa: number;
+  total_retail_valuation_paisa: number;
+  potential_profit_paisa: number;
+}
+
+export interface LowStockReportRow {
+  sku: string;
+  name: string;
+  on_hand: number;
+  reorder_point: number;
+  unit: string;
+  supplier: string;
+  suggested_order: number;
+}
+
+export interface SnapshotInfo {
+  path: string;
+  filename: string;
+  file_size_bytes: number;
+  created_at: string;
+  is_valid: boolean;
+}
+
+export interface LicenseInfoResponse {
+  machine_id: string;
+  status: string;
+  tier: string;
+  days_left?: number | null;
+  can_post_sales: boolean;
+  store_name: string;
+}
+
+export interface ZReportData {
+  session_id: string;
+  cashier_id: string;
+  cashier_name: string;
+  opened_at: string;
+  closed_at: string;
+  opening_float_paisa: number;
+  gross_sales_paisa: number;
+  discounts_paisa: number;
+  net_sales_paisa: number;
+  taxes_paisa: number;
+  tender_cash_paisa: number;
+  tender_card_paisa: number;
+  tender_digital_paisa: number;
+  tender_khata_paisa: number;
+  cash_drops_paisa: number;
+  refunds_paisa: number;
+  expected_cash_paisa: number;
+  counted_cash_paisa: number;
+  variance_paisa: number;
+  sales_count: number;
 }
 
 export interface Category {
@@ -367,8 +451,12 @@ export const api = {
 
   openShift: (openingFloatPaisa: number) =>
     callTauri<CashSession>("open_shift", { openingFloatPaisa }),
+  getActiveShift: () =>
+    callTauri<CashSession | null>("get_active_shift"),
+  recordCashDrop: (amountPaisa: number, reason: string) =>
+    callTauri<void>("record_cash_drop", { amountPaisa, reason }),
   closeShift: (closingCountedCashPaisa: number) =>
-    callTauri<any>("close_shift", { closingCountedCashPaisa }),
+    callTauri<ZReportData>("close_shift", { closingCountedCashPaisa }),
 
   listKhataParties: (partyType = "customer") =>
     callTauri<KhataPartySummary[]>("list_khata_parties", { partyType }),
@@ -377,11 +465,30 @@ export const api = {
 
   getReportsSummary: (startDate?: string, endDate?: string) =>
     callTauri<FinancialSummary>("get_reports_summary", { startDate: startDate || null, endDate: endDate || null }),
+  getCategoryPerformance: (startDate?: string, endDate?: string) =>
+    callTauri<CategoryPerformance[]>("get_category_performance", { startDate: startDate || null, endDate: endDate || null }),
+  getTopProducts: (startDate?: string, endDate?: string, limit = 10) =>
+    callTauri<TopProduct[]>("get_top_products", { startDate: startDate || null, endDate: endDate || null, limit }),
+  getInventoryValuation: () =>
+    callTauri<InventoryValuation>("get_inventory_valuation"),
+  getLowStockReport: () =>
+    callTauri<LowStockReportRow[]>("get_low_stock_report"),
 
-  exportBackup: (password: string, destinationFile: string) =>
-    callTauri<string>("export_backup", { password, destinationFile }),
+  exportBackup: (password: string, destinationFile?: string) =>
+    callTauri<string>("export_backup", { password, destinationFile: destinationFile || null }),
   restoreBackup: (password: string, backupFile: string) =>
     callTauri<string>("restore_backup", { password, backupFile }),
+  createLiveSnapshot: () =>
+    callTauri<SnapshotInfo>("create_live_snapshot"),
+  listDatabaseSnapshots: () =>
+    callTauri<SnapshotInfo[]>("list_database_snapshots"),
+
+  getMachineIdentifier: () =>
+    callTauri<string>("get_machine_identifier"),
+  getLicenseInfo: () =>
+    callTauri<LicenseInfoResponse>("get_license_info"),
+  activateLicenseToken: (token: string) =>
+    callTauri<LicenseInfoResponse>("activate_license_token", { token }),
 
   syncToCloud: () => callTauri<CloudSyncResult>("sync_to_cloud"),
 

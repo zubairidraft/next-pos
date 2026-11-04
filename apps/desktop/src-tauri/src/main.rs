@@ -5,17 +5,19 @@ mod printer;
 
 use chrono::Utc;
 use pos_core::auth::{Role, UserRepo, UserSession, UserSummary};
-use pos_core::backup::CryptoBackupService;
+use pos_core::backup::{CryptoBackupService, SnapshotInfo, SnapshotManager};
 use pos_core::db::connection::{open_encrypted_db, run_migrations};
 use pos_core::db::key::DbKeyManager;
 use pos_core::domain::{
     AnalyticsRepo, Brand, BrandRepo, BusinessSettings, CashSession, CatalogRepo, Category,
-    CategoryRepo, CompletedReturn, CompletedSale, CreatePartyParams, CreateProductParams,
-    CreatePurchaseInput, FinancialSummary, KhataRepo, Party, PartyRepo, PostReturnRequest,
-    PostSaleRequest, ProductSearchResult, PurchaseInvoice, PurchaseRepo, ReturnRepo, SaleRepo,
-    SettingsRepo, ShiftRepo, Unit, UnitRepo,
+    CategoryPerformance, CategoryRepo, CompletedReturn, CompletedSale, CreatePartyParams,
+    CreateProductParams, CreatePurchaseInput, FinancialSummary, InventoryValuation, KhataRepo,
+    Party, PartyRepo, PostReturnRequest, PostSaleRequest, ProductSearchResult, PurchaseInvoice,
+    PurchaseRepo, ReturnRepo, SaleRepo, SettingsRepo, ShiftRepo, TopProduct, Unit, UnitRepo,
 };
 use pos_core::hardware::{ReceiptPayload, ReceiptWidth};
+use pos_core::licensing::fingerprint::HardwareFingerprint;
+use pos_core::licensing::license::{LicenseStatus, LicenseStore};
 use pos_core::error::PosError;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -60,6 +62,27 @@ pub struct KhataPartySummary {
     pub phone: Option<String>,
     pub balance_paisa: i64,
     pub credit_limit_paisa: i64,
+}
+
+#[derive(Serialize)]
+pub struct LowStockReportRow {
+    pub sku: String,
+    pub name: String,
+    pub on_hand: f64,
+    pub reorder_point: f64,
+    pub unit: String,
+    pub supplier: String,
+    pub suggested_order: f64,
+}
+
+#[derive(Serialize)]
+pub struct LicenseInfoResponse {
+    pub machine_id: String,
+    pub status: String,
+    pub tier: String,
+    pub days_left: Option<i64>,
+    pub can_post_sales: bool,
+    pub store_name: String,
 }
 
 fn seed_master_data_if_empty(conn: &Connection) -> Result<(), PosError> {
@@ -501,10 +524,50 @@ fn open_shift(
     let cur_user = state.current_user.lock().map_err(|e| e.to_string())?.clone();
     let user_id = cur_user.map(|u| u.user_id).unwrap_or_else(|| "usr-default".into());
 
+    if let Ok(Some(existing)) = ShiftRepo::get_active_session(&conn, &user_id) {
+        let mut act = state.active_shift.lock().map_err(|e| e.to_string())?;
+        *act = Some(existing.clone());
+        return Ok(existing);
+    }
+
     let session = ShiftRepo::start_shift(&mut conn, &user_id, opening_float_paisa).map_err(|e| e.to_string())?;
     let mut act = state.active_shift.lock().map_err(|e| e.to_string())?;
     *act = Some(session.clone());
     Ok(session)
+}
+
+#[tauri::command]
+fn get_active_shift(
+    state: State<'_, AppState>,
+) -> Result<Option<CashSession>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let cur_user = state.current_user.lock().map_err(|e| e.to_string())?.clone();
+    let user_id = cur_user.map(|u| u.user_id).unwrap_or_else(|| "usr-default".into());
+    let session = ShiftRepo::get_active_session(&conn, &user_id).map_err(|e| e.to_string())?;
+    let mut act = state.active_shift.lock().map_err(|e| e.to_string())?;
+    *act = session.clone();
+    Ok(session)
+}
+
+#[tauri::command]
+fn record_cash_drop(
+    state: State<'_, AppState>,
+    amount_paisa: i64,
+    reason: String,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let cur_shift = state.active_shift.lock().map_err(|e| e.to_string())?.clone();
+    let shift_id = if let Some(s) = cur_shift {
+        s.id
+    } else {
+        let cur_user = state.current_user.lock().map_err(|e| e.to_string())?.clone();
+        let user_id = cur_user.map(|u| u.user_id).unwrap_or_else(|| "usr-default".into());
+        ShiftRepo::get_active_session(&conn, &user_id)
+            .map_err(|e| e.to_string())?
+            .map(|s| s.id)
+            .ok_or_else(|| "No active shift to record cash drop".to_string())?
+    };
+    ShiftRepo::record_cash_drop(&mut conn, &shift_id, amount_paisa, &reason).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -513,11 +576,20 @@ fn close_shift(
     closing_counted_cash_paisa: i64,
 ) -> Result<pos_core::domain::ZReportData, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let cur_shift = state.active_shift.lock().map_err(|e| e.to_string())?.clone();
-    let shift_id = cur_shift.map(|s| s.id).ok_or_else(|| "No active shift to close".to_string())?;
+    let cur_user = state.current_user.lock().map_err(|e| e.to_string())?.clone();
+    let user_id = cur_user.map(|u| u.user_id).unwrap_or_else(|| "usr-default".into());
+
+    let mut act = state.active_shift.lock().map_err(|e| e.to_string())?;
+    let shift_id = if let Some(ref s) = *act {
+        s.id.clone()
+    } else {
+        ShiftRepo::get_active_session(&conn, &user_id)
+            .map_err(|e| e.to_string())?
+            .map(|s| s.id)
+            .ok_or_else(|| "No active shift to close".to_string())?
+    };
 
     let zreport = ShiftRepo::close_shift(&mut conn, &shift_id, closing_counted_cash_paisa).map_err(|e| e.to_string())?;
-    let mut act = state.active_shift.lock().map_err(|e| e.to_string())?;
     *act = None;
     Ok(zreport)
 }
@@ -575,18 +647,211 @@ fn get_reports_summary(
 }
 
 #[tauri::command]
+fn get_category_performance(
+    state: State<'_, AppState>,
+    start_date: Option<String>,
+    end_date: Option<String>,
+) -> Result<Vec<CategoryPerformance>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let start = start_date.unwrap_or_else(|| "1970-01-01T00:00:00Z".into());
+    let end = end_date.unwrap_or_else(|| "2099-12-31T23:59:59Z".into());
+    AnalyticsRepo::get_category_performance(&conn, &start, &end).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_top_products(
+    state: State<'_, AppState>,
+    start_date: Option<String>,
+    end_date: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<TopProduct>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let start = start_date.unwrap_or_else(|| "1970-01-01T00:00:00Z".into());
+    let end = end_date.unwrap_or_else(|| "2099-12-31T23:59:59Z".into());
+    AnalyticsRepo::get_top_products(&conn, &start, &end, limit.unwrap_or(10)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_inventory_valuation(
+    state: State<'_, AppState>,
+) -> Result<InventoryValuation, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    AnalyticsRepo::get_inventory_valuation(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_low_stock_report(
+    state: State<'_, AppState>,
+) -> Result<Vec<LowStockReportRow>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(
+        "SELECT pv.sku, p.name,
+                COALESCE(ib.on_hand_milli, 0) as on_hand_milli,
+                COALESCE(p.reorder_point_milli, 10000) as reorder_milli,
+                COALESCE(u.code, 'PC') as unit_code,
+                COALESCE(pt.name, 'General Supplier') as supplier
+         FROM product_variants pv
+         JOIN products p ON pv.product_id = p.id
+         LEFT JOIN inventory_balances ib ON pv.id = ib.variant_id
+         LEFT JOIN units u ON p.unit_id = u.id
+         LEFT JOIN parties pt ON pt.party_type = 'vendor'
+         WHERE COALESCE(ib.on_hand_milli, 0) <= COALESCE(p.reorder_point_milli, 10000)
+         GROUP BY pv.id
+         ORDER BY on_hand_milli ASC
+         LIMIT 50"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map([], |r| {
+        let on_hand_milli: i64 = r.get(2)?;
+        let reorder_milli: i64 = r.get(3)?;
+        let on_hand = on_hand_milli as f64 / 1000.0;
+        let reorder_point = reorder_milli as f64 / 1000.0;
+        let suggested = (reorder_point * 2.0 - on_hand).max(1.0);
+        Ok(LowStockReportRow {
+            sku: r.get(0)?,
+            name: r.get(1)?,
+            on_hand,
+            reorder_point,
+            unit: r.get(4)?,
+            supplier: r.get(5)?,
+            suggested_order: suggested.round(),
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        if let Ok(item) = row {
+            result.push(item);
+        }
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+fn create_live_snapshot(
+    state: State<'_, AppState>,
+) -> Result<SnapshotInfo, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let snap_dir = DbKeyManager::default_key_dir().join("snapshots");
+    let info = SnapshotManager::create_snapshot(&conn, &snap_dir).map_err(|e| e.to_string())?;
+    let _ = SnapshotManager::rotate_snapshots(&snap_dir, 24);
+    Ok(info)
+}
+
+#[tauri::command]
+fn list_database_snapshots() -> Result<Vec<SnapshotInfo>, String> {
+    let snap_dir = DbKeyManager::default_key_dir().join("snapshots");
+    if !snap_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut snapshots = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&snap_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().map(|e| e == "kdb" || e == "db").unwrap_or(false) {
+                if let Ok(meta) = entry.metadata() {
+                    let created = meta.created().or_else(|_| meta.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    let created_str = chrono::DateTime::<Utc>::from(created).to_rfc3339();
+                    let filename = entry.file_name().to_string_lossy().to_string();
+                    let path_str = path.to_string_lossy().to_string();
+                    snapshots.push(SnapshotInfo {
+                        path: path_str,
+                        filename,
+                        file_size_bytes: meta.len(),
+                        created_at: created_str,
+                        is_valid: meta.len() > 0,
+                    });
+                }
+            }
+        }
+    }
+    snapshots.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(snapshots)
+}
+
+#[tauri::command]
+fn get_machine_identifier() -> Result<String, String> {
+    Ok(HardwareFingerprint::get_machine_id())
+}
+
+#[tauri::command]
+fn get_license_info(state: State<'_, AppState>) -> Result<LicenseInfoResponse, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let machine_id = HardwareFingerprint::get_machine_id();
+    let now = Utc::now();
+    let status = LicenseStore::current_status(&conn, &machine_id, &now, None).map_err(|e| e.to_string())?;
+
+    let store_name = SettingsRepo::get(&conn).map(|s| s.name).unwrap_or_else(|_| "Next POS Retail Store".into());
+
+    let (status_str, tier_str, days_left) = match &status {
+        LicenseStatus::Active { tier, days_left, .. } => {
+            ("active".into(), format!("{:?}", tier), *days_left)
+        }
+        LicenseStatus::GracePeriod { tier, grace_days_left, .. } => {
+            ("grace_period".into(), format!("{:?}", tier), Some(*grace_days_left))
+        }
+        LicenseStatus::TrialActive { days_left, .. } => {
+            ("trial".into(), "Trial".into(), Some(*days_left))
+        }
+        LicenseStatus::Expired => ("expired".into(), "None".into(), Some(0)),
+        LicenseStatus::MachineMismatch { .. } => ("machine_mismatch".into(), "None".into(), None),
+        LicenseStatus::InvalidSignature => ("invalid_signature".into(), "None".into(), None),
+        LicenseStatus::MalformedToken => ("malformed_token".into(), "None".into(), None),
+        LicenseStatus::ClockTampered => ("clock_tampered".into(), "None".into(), None),
+    };
+
+    Ok(LicenseInfoResponse {
+        machine_id,
+        status: status_str,
+        tier: tier_str,
+        days_left,
+        can_post_sales: status.can_post_sales(),
+        store_name,
+    })
+}
+
+#[tauri::command]
+fn activate_license_token(state: State<'_, AppState>, token: String) -> Result<LicenseInfoResponse, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let machine_id = HardwareFingerprint::get_machine_id();
+    let now = Utc::now();
+    LicenseStore::install_token(&conn, &token, &machine_id, &now, None).map_err(|e| e.to_string())?;
+    drop(conn);
+    get_license_info(state)
+}
+
+#[tauri::command]
 fn export_backup(
     state: State<'_, AppState>,
     password: String,
-    destination_file: String,
+    destination_file: Option<String>,
 ) -> Result<String, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let dest_path = if let Some(dest) = destination_file.filter(|s| !s.trim().is_empty()) {
+        std::path::PathBuf::from(dest)
+    } else {
+        let backup_dir = DbKeyManager::default_key_dir().join("backups");
+        let _ = std::fs::create_dir_all(&backup_dir);
+        let time_str = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+        backup_dir.join(format!("backup_{}.kpos", time_str))
+    };
+
+    if let Some(parent) = dest_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
     let manifest = CryptoBackupService::export_backup(
         &conn,
-        std::path::Path::new(&destination_file),
+        &dest_path,
         &password,
     ).map_err(|e| e.to_string())?;
-    Ok(format!("Backup created: {} bytes, schema V{}", manifest.payload_size_bytes, manifest.schema_version))
+
+    Ok(format!(
+        "Backup created: {} ({:.1} KB, schema V{})",
+        dest_path.display(),
+        manifest.payload_size_bytes as f64 / 1024.0,
+        manifest.schema_version
+    ))
 }
 
 #[tauri::command]
@@ -777,12 +1042,23 @@ fn main() {
             get_recent_sales,
             post_return,
             open_shift,
+            get_active_shift,
+            record_cash_drop,
             close_shift,
             list_khata_parties,
             get_khata_statement,
             get_reports_summary,
+            get_category_performance,
+            get_top_products,
+            get_inventory_valuation,
+            get_low_stock_report,
             export_backup,
             restore_backup,
+            create_live_snapshot,
+            list_database_snapshots,
+            get_machine_identifier,
+            get_license_info,
+            activate_license_token,
             sync_to_cloud,
             reset_store_account,
             list_system_printers,

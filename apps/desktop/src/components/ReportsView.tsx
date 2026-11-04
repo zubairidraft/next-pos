@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   TrendingUp,
   DollarSign,
@@ -15,7 +15,46 @@ import {
   UserCheck,
   Percent,
   RotateCcw,
+  Loader2,
 } from "lucide-react";
+import {
+  api,
+  FinancialSummary,
+  CategoryPerformance,
+  TopProduct,
+  InventoryValuation,
+  LowStockReportRow,
+} from "../lib/api";
+
+function getDateBounds(range: "today" | "yesterday" | "week" | "month" | "year") {
+  const now = new Date();
+  const start = new Date(now);
+  const end = new Date(now);
+
+  if (range === "today") {
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+  } else if (range === "yesterday") {
+    start.setDate(now.getDate() - 1);
+    start.setHours(0, 0, 0, 0);
+    end.setDate(now.getDate() - 1);
+    end.setHours(23, 59, 59, 999);
+  } else if (range === "week") {
+    start.setDate(now.getDate() - 7);
+    start.setHours(0, 0, 0, 0);
+  } else if (range === "month") {
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+  } else if (range === "year") {
+    start.setMonth(0, 1);
+    start.setHours(0, 0, 0, 0);
+  }
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+  };
+}
 
 export function ReportsView() {
   const [activeTab, setActiveTab] = useState<
@@ -23,12 +62,59 @@ export function ReportsView() {
   >("sales");
   const [dateRange, setDateRange] = useState<"today" | "yesterday" | "week" | "month" | "year">("today");
 
+  const [loading, setLoading] = useState(false);
+  const [liveSummary, setLiveSummary] = useState<FinancialSummary | null>(null);
+  const [liveCategories, setLiveCategories] = useState<CategoryPerformance[]>([]);
+  const [liveTopProducts, setLiveTopProducts] = useState<TopProduct[]>([]);
+  const [liveValuation, setLiveValuation] = useState<InventoryValuation | null>(null);
+  const [liveLowStock, setLiveLowStock] = useState<LowStockReportRow[]>([]);
+  const [isLiveActive, setIsLiveActive] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchReports = async () => {
+      setLoading(true);
+      const bounds = getDateBounds(dateRange);
+      try {
+        const [sum, cats, tops, val, low] = await Promise.all([
+          api.getReportsSummary(bounds.start, bounds.end).catch(() => null),
+          api.getCategoryPerformance(bounds.start, bounds.end).catch(() => []),
+          api.getTopProducts(bounds.start, bounds.end, 10).catch(() => []),
+          api.getInventoryValuation().catch(() => null),
+          api.getLowStockReport().catch(() => []),
+        ]);
+
+        if (isMounted) {
+          if (sum && (sum.sales_count > 0 || sum.gross_sales_paisa > 0)) {
+            setLiveSummary(sum);
+            setIsLiveActive(true);
+          } else {
+            setLiveSummary(sum);
+          }
+          if (cats && cats.length > 0) setLiveCategories(cats);
+          if (tops && tops.length > 0) setLiveTopProducts(tops);
+          if (val && val.total_variants_count > 0) setLiveValuation(val);
+          if (low && low.length > 0) setLiveLowStock(low);
+        }
+      } catch (e) {
+        console.warn("Failed to load live reports:", e);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchReports();
+    return () => {
+      isMounted = false;
+    };
+  }, [dateRange]);
+
   const formatPkr = (paisa: number) => {
     return `PKR ${(paisa / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  // 1. Sales & Revenue State
-  const salesSummary = {
+  // 1. Sales & Revenue Default State
+  const DEFAULT_SALES_SUMMARY = {
     gross_sales_paisa: 48500000,
     discounts_paisa: 1500000,
     tax_paisa: 2800000,
@@ -41,7 +127,7 @@ export function ReportsView() {
     avg_ticket_paisa: 145061,
   };
 
-  const paymentBreakdown = [
+  const DEFAULT_PAYMENT_BREAKDOWN = [
     { method: "Cash", amount_paisa: 28500000, percent: 60.6, count: 215 },
     { method: "Credit / Khata", amount_paisa: 9200000, percent: 19.6, count: 48 },
     { method: "Debit / Credit Card", amount_paisa: 5100000, percent: 10.9, count: 32 },
@@ -49,7 +135,7 @@ export function ReportsView() {
     { method: "JazzCash / EasyPaisa", amount_paisa: 1800000, percent: 3.8, count: 11 },
   ];
 
-  const categorySales = [
+  const DEFAULT_CATEGORY_SALES = [
     { name: "Cooking Oil & Ghee", qty: 280, revenue: 18500000, cogs: 15200000, profit: 3300000, margin: 17.8 },
     { name: "Dairy & Beverages", qty: 450, revenue: 13500000, cogs: 11200000, profit: 2300000, margin: 17.0 },
     { name: "Snacks & Confectionery", qty: 390, revenue: 8200000, cogs: 5900000, profit: 2300000, margin: 28.0 },
@@ -63,14 +149,14 @@ export function ReportsView() {
   ];
 
   // 2. Inventory & Stock Reports State
-  const lowStockAlerts = [
+  const DEFAULT_LOW_STOCK = [
     { sku: "DALDA-OIL-5L", name: "Dalda Cooking Oil 5L Tin", on_hand: 18, reorder_point: 25, unit: "CAN", supplier: "Dalda Foods", suggested_order: 30 },
     { sku: "SUGAR-FINE-1KG", name: "Fine White Sugar 1kg Pack", on_hand: 22, reorder_point: 50, unit: "KG", supplier: "Al-Rehman Traders", suggested_order: 100 },
     { sku: "TEA-TAPAL-400", name: "Tapal Danedar Tea 400g Pouch", on_hand: 12, reorder_point: 30, unit: "PCS", supplier: "Tapal Tea Agency", suggested_order: 40 },
     { sku: "DET-SURF-1KG", name: "Surf Excel Detergent 1kg", on_hand: 8, reorder_point: 20, unit: "PCS", supplier: "Unilever Pakistan", suggested_order: 25 },
   ];
 
-  const stockVelocity = [
+  const DEFAULT_STOCK_VELOCITY = [
     { sku: "MILK-OLPERS-1L", name: "Olpers Milk 1L Tetra", status: "Fast Moving", velocity: "120 units / day", days_cover: "3.5 days", turnover: "High" },
     { sku: "TEA-TAPAL-400", name: "Tapal Danedar Tea 400g", status: "Fast Moving", velocity: "65 units / day", days_cover: "4.2 days", turnover: "High" },
     { sku: "SHAN-KOR-50G", name: "Shan Special Korma Masala", status: "Steady", velocity: "15 units / day", days_cover: "14 days", turnover: "Medium" },
@@ -78,14 +164,73 @@ export function ReportsView() {
     { sku: "SP-OLIVE-250M", name: "Imported Extra Virgin Olive 250ml", status: "Dead Stock (>45d)", velocity: "0 units / 30d", days_cover: "180 days", turnover: "Critical" },
   ];
 
-  const stockValuation = {
+  const stockVelocity = liveTopProducts.length > 0
+    ? liveTopProducts.map((p) => ({
+        sku: p.sku,
+        name: p.name,
+        status: "Top Seller",
+        velocity: `${Math.round(p.qty_sold_milli / 1000)} sold`,
+        days_cover: `PKR ${(p.revenue_paisa / 100).toFixed(0)}`,
+        turnover: "High",
+      }))
+    : DEFAULT_STOCK_VELOCITY;
+
+  const DEFAULT_VALUATION = {
     total_items_count: 580,
     total_stock_units: 14850,
-    cost_valuation_paisa: 382400000, // PKR 3,824,000 cost
-    retail_valuation_paisa: 468000000, // PKR 4,680,000 retail
-    unrealized_profit_paisa: 85600000, // PKR 856,000 profit
+    cost_valuation_paisa: 382400000,
+    retail_valuation_paisa: 468000000,
+    unrealized_profit_paisa: 85600000,
     margin_percent: 18.29,
   };
+
+  // Compute live or fallback values
+  const salesSummary = (liveSummary && liveSummary.sales_count > 0) ? {
+    gross_sales_paisa: liveSummary.gross_sales_paisa,
+    discounts_paisa: liveSummary.discounts_paisa,
+    tax_paisa: liveSummary.tax_paisa,
+    net_sales_paisa: liveSummary.net_sales_paisa,
+    cogs_paisa: liveSummary.cogs_paisa,
+    gross_profit_paisa: liveSummary.gross_profit_paisa,
+    gross_margin_percent: Math.round(liveSummary.gross_margin_percent * 10) / 10,
+    orders_count: liveSummary.sales_count,
+    units_sold: Math.round(liveSummary.total_units_sold_milli / 1000),
+    avg_ticket_paisa: liveSummary.average_ticket_paisa,
+  } : DEFAULT_SALES_SUMMARY;
+
+  const paymentBreakdown = (liveSummary && liveSummary.tender_breakdown && liveSummary.tender_breakdown.length > 0)
+    ? liveSummary.tender_breakdown.map(([method, amt]) => {
+        const total = liveSummary.gross_sales_paisa || 1;
+        return {
+          method: method.toUpperCase(),
+          amount_paisa: amt,
+          percent: Math.round((amt / total) * 1000) / 10,
+          count: Math.round(amt / (liveSummary.average_ticket_paisa || 1)) || 1,
+        };
+      })
+    : DEFAULT_PAYMENT_BREAKDOWN;
+
+  const categorySales = liveCategories.length > 0 ? liveCategories.map((c) => ({
+    name: c.category_name,
+    qty: Math.round(c.qty_sold_milli / 1000),
+    revenue: c.revenue_paisa,
+    cogs: c.cogs_paisa,
+    profit: c.gross_profit_paisa,
+    margin: Math.round(c.gross_margin_percent * 10) / 10,
+  })) : DEFAULT_CATEGORY_SALES;
+
+  const lowStockAlerts = liveLowStock.length > 0 ? liveLowStock : DEFAULT_LOW_STOCK;
+
+  const stockValuation = liveValuation ? {
+    total_items_count: liveValuation.total_variants_count,
+    total_stock_units: Math.round(liveValuation.total_stock_milli / 1000),
+    cost_valuation_paisa: liveValuation.total_cost_valuation_paisa,
+    retail_valuation_paisa: liveValuation.total_retail_valuation_paisa,
+    unrealized_profit_paisa: liveValuation.potential_profit_paisa,
+    margin_percent: liveValuation.total_retail_valuation_paisa > 0
+      ? Math.round((liveValuation.potential_profit_paisa / liveValuation.total_retail_valuation_paisa) * 10000) / 100
+      : 0,
+  } : DEFAULT_VALUATION;
 
   const stockAdjustments = [
     { date: "2026-10-31", item: "Olpers Milk 1000ml", reason: "Damaged packaging leak", qty_diff: -4, value_paisa: 96000, user: "Supervisor Imran" },
@@ -236,7 +381,17 @@ export function ReportsView() {
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-emerald-500" />
-            Executive Business Intelligence & Analytics
+            <span>Executive Business Intelligence & Analytics</span>
+            {loading && <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />}
+            {isLiveActive ? (
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/30">
+                Live SQLite
+              </span>
+            ) : (
+              <span className="text-[10px] uppercase font-medium tracking-wider px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                Demo Preview
+              </span>
+            )}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Enterprise reporting for Sales, Inventory Valuation, P&L, Tax GST, Customers, and Cashier Performance.

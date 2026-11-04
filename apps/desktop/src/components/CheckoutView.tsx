@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CartLineItem, ParkedCartItem, PaymentTender, SaleSummary } from "../lib/contracts";
-import { api, ProductSearchResult, PostSaleRequest } from "../lib/api";
+import { api, ProductSearchResult, PostSaleRequest, CashSession } from "../lib/api";
 import { PaymentModal } from "./PaymentModal";
 import { ParkedCartsModal } from "./ParkedCartsModal";
 import { PrinterSettingsModal } from "./PrinterSettingsModal";
@@ -218,6 +218,19 @@ export const CheckoutView: React.FC = () => {
       parked_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
     },
   ]);
+
+  const [activeShift, setActiveShift] = useState<CashSession | null>(null);
+
+  useEffect(() => {
+    api.getActiveShift()
+      .then((s) => {
+        if (s) setActiveShift(s);
+        else {
+          api.openShift(100000).then((ns) => setActiveShift(ns)).catch(() => {});
+        }
+      })
+      .catch((e) => console.warn("Failed to get active shift:", e));
+  }, []);
 
   const [recentSale, setRecentSale] = useState<SaleSummary | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
@@ -1574,10 +1587,11 @@ export const CheckoutView: React.FC = () => {
       <ShiftCloseModal
         isOpen={isShiftOpen}
         onClose={() => setIsShiftOpen(false)}
-        openingFloatPaisa={100000} // PKR 1,000 float
-        expectedCashPaisa={250000} // PKR 2,500 expected
+        openingFloatPaisa={activeShift?.opening_float_paisa ?? 100000}
+        expectedCashPaisa={activeShift?.expected_cash_paisa ?? 250000}
         cashierName="Cashier"
         onShiftClosed={(countedPaisa) => {
+          setActiveShift(null);
           showToast(
             `Shift closed! Counted: PKR ${(countedPaisa / 100).toFixed(2)}. Z-Report printed.`
           );

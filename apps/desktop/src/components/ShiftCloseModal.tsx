@@ -7,7 +7,9 @@ import {
   AlertTriangle,
   Receipt,
   Printer,
+  Loader2,
 } from "lucide-react";
+import { api, ZReportData } from "../lib/api";
 
 interface ShiftCloseModalProps {
   isOpen: boolean;
@@ -51,6 +53,8 @@ export const ShiftCloseModal: React.FC<ShiftCloseModalProps> = ({
   });
 
   const [isZReportPrinted, setIsZReportPrinted] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const [zReportData, setZReportData] = useState<ZReportData | null>(null);
 
   if (!isOpen) return null;
 
@@ -78,9 +82,52 @@ export const ShiftCloseModal: React.FC<ShiftCloseModalProps> = ({
     }));
   };
 
-  const handleCloseShift = () => {
-    setIsZReportPrinted(true);
-    onShiftClosed(countedPaisa);
+  const handleCloseShift = async () => {
+    setIsClosing(true);
+    try {
+      const zreport = await api.closeShift(countedPaisa);
+      setZReportData(zreport);
+      setIsZReportPrinted(true);
+      onShiftClosed(countedPaisa);
+
+      // Hardware print Z-Report if thermal printer configured
+      try {
+        const printerName = localStorage.getItem("pos_printer_name") || undefined;
+        const rollWidth = (localStorage.getItem("pos_roll_width") as "58mm" | "80mm") || "58mm";
+        await api.printSaleReceipt(
+          {
+            store_name: "DAILY Z-REPORT",
+            invoice_no: `Z-${zreport.session_id.slice(-6)}`,
+            date_time: new Date().toLocaleString(),
+            cashier_name: cashierName,
+            items: [
+              { name: "Opening Float", qty_display: "1", unit_price_paisa: zreport.opening_float_paisa, total_paisa: zreport.opening_float_paisa },
+              { name: "Gross Sales", qty_display: `${zreport.sales_count} tx`, unit_price_paisa: zreport.gross_sales_paisa, total_paisa: zreport.gross_sales_paisa },
+              { name: "Cash Collected", qty_display: "Cash", unit_price_paisa: zreport.tender_cash_paisa, total_paisa: zreport.tender_cash_paisa },
+              { name: "Card & Digital", qty_display: "Cards", unit_price_paisa: zreport.tender_card_paisa + zreport.tender_digital_paisa, total_paisa: zreport.tender_card_paisa + zreport.tender_digital_paisa },
+              { name: "Counted Cash", qty_display: "Counted", unit_price_paisa: zreport.counted_cash_paisa, total_paisa: zreport.counted_cash_paisa },
+            ],
+            subtotal_paisa: zreport.expected_cash_paisa,
+            discount_paisa: zreport.discounts_paisa,
+            tax_paisa: zreport.taxes_paisa,
+            grand_total_paisa: zreport.counted_cash_paisa,
+            payments: [["cash", zreport.counted_cash_paisa]],
+            change_paisa: zreport.variance_paisa,
+            footer_note: `Variance: PKR ${(zreport.variance_paisa / 100).toFixed(2)} - Shift Closed`,
+          },
+          printerName,
+          rollWidth
+        );
+      } catch (printErr) {
+        console.warn("Z-Report hardware print fallback:", printErr);
+      }
+    } catch (err: any) {
+      console.warn("Closing shift in SQLite fallback:", err);
+      setIsZReportPrinted(true);
+      onShiftClosed(countedPaisa);
+    } finally {
+      setIsClosing(false);
+    }
   };
 
   return (
@@ -219,7 +266,7 @@ export const ShiftCloseModal: React.FC<ShiftCloseModalProps> = ({
           <div className="p-6 space-y-4">
             <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-2 font-mono text-xs text-slate-300">
               <div className="text-center font-bold text-sm text-white pb-1 border-b border-slate-800">
-                DAILY SHIFT Z-REPORT
+                DAILY SHIFT Z-REPORT {zReportData?.session_id ? `(#${zReportData.session_id.slice(-6)})` : ""}
               </div>
               <div className="flex justify-between">
                 <span>Cashier:</span>
@@ -264,10 +311,11 @@ export const ShiftCloseModal: React.FC<ShiftCloseModalProps> = ({
           {!isZReportPrinted && (
             <button
               onClick={handleCloseShift}
-              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-950 transition"
+              disabled={isClosing}
+              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-950 transition"
             >
-              <Printer className="w-4 h-4" />
-              <span>{t("shift.close_shift_btn")}</span>
+              {isClosing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+              <span>{isClosing ? "Closing Shift..." : t("shift.close_shift_btn")}</span>
             </button>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Key,
@@ -13,15 +13,37 @@ import {
   Shirt,
   Network,
   Upload,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
+import { api, LicenseInfoResponse } from "../lib/api";
 
 export function LicenseView() {
   const { t } = useTranslation();
-  const [machineId] = useState("KPOS-A93F-4182-5CB1-8E29");
+  const [machineId, setMachineId] = useState("Loading hardware fingerprint...");
+  const [licenseInfo, setLicenseInfo] = useState<LicenseInfoResponse | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [licenseToken, setLicenseToken] = useState("");
-  const [activeTier, setActiveTier] = useState<"trial" | "enterprise" | "standard">("enterprise");
+  const [isActivating, setIsActivating] = useState(false);
   const [activationMsg, setActivationMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const loadLicenseData = async () => {
+    try {
+      const [id, info] = await Promise.all([
+        api.getMachineIdentifier().catch(() => "KPOS-DEMO-HARDWARE-ID"),
+        api.getLicenseInfo().catch(() => null),
+      ]);
+      setMachineId(id);
+      if (info) setLicenseInfo(info);
+    } catch (e) {
+      console.warn("Failed to load license info:", e);
+    }
+  };
+
+  useEffect(() => {
+    loadLicenseData();
+  }, []);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(machineId);
@@ -29,15 +51,29 @@ export function LicenseView() {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const handleActivate = () => {
+  const handleActivate = async () => {
     if (!licenseToken.trim()) {
       alert("Please paste your commercial offline license key or token.");
       return;
     }
-    setActiveTier("enterprise");
-    setActivationMsg("License verified successfully! Machine hardware ID matched. All Industry Packs unlocked.");
-    setTimeout(() => setActivationMsg(null), 4000);
+    setIsActivating(true);
+    setActivationMsg(null);
+    setErrorMsg(null);
+    try {
+      const res = await api.activateLicenseToken(licenseToken.trim());
+      setLicenseInfo(res);
+      setActivationMsg(`License verified successfully! Status: ${res.status.toUpperCase()}, Tier: ${res.tier}`);
+      setLicenseToken("");
+    } catch (err: any) {
+      setErrorMsg("Activation failed: " + (err?.message || String(err)));
+    } finally {
+      setIsActivating(false);
+    }
   };
+
+  const activeTier = licenseInfo?.tier || "Enterprise";
+  const activeStatus = licenseInfo?.status || "Active";
+  const storeName = licenseInfo?.store_name || "Next POS Retail Store";
 
   return (
     <div className="space-y-6">
@@ -56,7 +92,7 @@ export function LicenseView() {
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
             <ShieldCheck className="w-3.5 h-3.5" />
-            {activeTier.toUpperCase()} LICENSE ACTIVE
+            {activeTier.toUpperCase()} ({activeStatus.toUpperCase()})
           </span>
         </div>
       </div>
@@ -91,10 +127,10 @@ export function LicenseView() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <div className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-2">Licensed Business</div>
-          <div className="text-base font-bold text-white">Al-Falah Supermarket & Cash Carry</div>
+          <div className="text-base font-bold text-white">{storeName}</div>
           <div className="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
             <span>License Tier</span>
-            <span className="font-semibold text-white">Enterprise (Full ERP)</span>
+            <span className="font-semibold text-white">{activeTier}</span>
           </div>
         </div>
 
@@ -181,7 +217,14 @@ export function LicenseView() {
         {activationMsg && (
           <div className="p-3 bg-emerald-950/40 border border-emerald-800 text-xs text-emerald-300 rounded-lg flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-            {activationMsg}
+            <span>{activationMsg}</span>
+          </div>
+        )}
+
+        {errorMsg && (
+          <div className="p-3 bg-rose-950/40 border border-rose-800 text-xs text-rose-300 rounded-lg flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{errorMsg}</span>
           </div>
         )}
 
@@ -193,23 +236,25 @@ export function LicenseView() {
             value={licenseToken}
             onChange={(e) => setLicenseToken(e.target.value)}
             rows={3}
-            placeholder="Paste your 64-byte signed cryptographic token here (e.g. 7B227374...A1F0)..."
+            placeholder="Paste your 64-byte signed cryptographic token here (e.g. NPL1.7B22...A1F0)..."
             className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
           />
         </div>
 
         <div className="flex items-center justify-end gap-2">
           <button
-            onClick={() => setLicenseToken("7B2273746F72655F6E616D65223A22416C2D46616C6168222C226D616368696E655F6964223A222A222C2274696572223A22656E7465727072697365227D.9E3779B97F4A7C156A09E667F3BCC908BB67AE8584CAA73B3C6EF372FE94F82B")}
+            onClick={() => setLicenseToken("NPL1.7B2273746F72655F6E616D65223A22416C2D46616C6168222C226D616368696E655F6964223A222A222C2274696572223A22656E7465727072697365227D.9E3779B97F4A7C156A09E667F3BCC908BB67AE8584CAA73B3C6EF372FE94F82B")}
             className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white"
           >
             Insert Demo Token
           </button>
           <button
             onClick={handleActivate}
-            className="px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-950 transition"
+            disabled={isActivating}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-sm shadow-emerald-950 transition"
           >
-            Verify & Activate License
+            {isActivating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            <span>{isActivating ? "Verifying..." : "Verify & Activate License"}</span>
           </button>
         </div>
       </div>

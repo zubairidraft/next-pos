@@ -20,6 +20,9 @@ Next POS is delivered across 12 focused implementation phases (corresponding to 
 - [ ] **Phase 12: Pilot Hardening & General Availability Launch** - Resolution of shop feedback, final hardware compatibility certifications, dealer portal, and production Windows release.
 - [x] **Phase 13: Core Data Wiring & SQLite Persistence** - Expose Rust master data and catalog IPC commands, wire Catalog, Master Data, Khata, and Purchasing frontend to real encrypted SQLite database.
 - [x] **Phase 14: Hardware Peripherals & ESC/POS Printing** - Native ESC/POS thermal receipt printing, Windows raw print spooler, cash drawer kick pulse, and printer diagnostic manager.
+- [x] **Phase 15: Offline Reporting & Analytics Engine** - Connect ReportsView to live SQLite database (Sales & Revenue, Inventory Valuation, Low Stock Alerts, P&L Statement) with CSV export.
+- [x] **Phase 16: Cashier Shifts, Petty Cash & Z-Report Auditing** - Cash session tracking, drawer floats, cash drops, Pakistani denomination counting, and thermal Z-Report generation.
+- [x] **Phase 17: Encrypted Backups & Offline Licensing** - Non-blocking SQLite VACUUM live snapshots, encrypted .kpos packages with Argon2id, hardware fingerprinting, and Ed25519 offline license verification.
 
 ---
 
@@ -250,4 +253,22 @@ Plans:
 - [x] 14-01: Implement raw ESC/POS Windows print spooler and network printer service in Rust (`src-tauri`).
 - [x] 14-02: Expose printer Tauri commands (`list_printers`, `print_raw_escpos`, `print_sale_receipt`, `kick_cash_drawer`) and wire `api.ts`.
 - [x] 14-03: Wire `PrinterSettingsModal`, `ReceiptModal`, and POS `CheckoutView` silent receipt printing & drawer kick.
+
+### Phase 15: Offline Reporting & Analytics Engine
+**Goal**: Connect ReportsView to live encrypted SQLite database for Sales & Revenue, Category Performance, Top Products, Inventory Valuation, and Low Stock Alerts with CSV export.  
+**Depends on**: Phase 13, 14  
+**Plans**: 1 plan (15-01)  
+- [x] 15-01: Wire SQLite analytics queries, date range filters, and CSV export in `ReportsView.tsx`.
+
+### Phase 16: Cashier Shifts, Petty Cash & Z-Report Auditing
+**Goal**: Track cash sessions, opening floats, cash drops, Pakistani note denomination counter, and print Z-Reports to thermal receipt printers.  
+**Depends on**: Phase 14  
+**Plans**: 1 plan (16-01)  
+- [x] 16-01: Implement cashier shift lifecycle, denomination reconciliation, and hardware Z-Report printing.
+
+### Phase 17: Encrypted Backups & Offline Licensing
+**Goal**: Non-blocking SQLite VACUUM live snapshots, encrypted .kpos packages with Argon2id, hardware fingerprinting, and Ed25519 offline license verification.  
+**Depends on**: Phase 1, 13  
+**Plans**: 1 plan (17-01)  
+- [x] 17-01: Connect live snapshots, USB export/restore, machine hardware fingerprint, and offline license activation.
 
