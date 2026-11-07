@@ -202,12 +202,12 @@ export function SaleScreen() {
     const typed = await toast.prompt(`Price for ${ql.name}`, "Price (Rs)", {
       type: "number",
       initial: String(ql.unit_price_paisa / 100),
-      message: `Sale price ${formatPkr(ql.catalog_price_paisa)}${min !== null ? ` · lowest allowed ${formatPkr(min)}` : ""}`,
+      message: `Sale price ${formatPkr(ql.catalog_price_paisa)}`,
     });
     if (typed === null) return;
     const p = toPaisa(typed);
     if (p <= 0) return toast.error("Enter a price.");
-    if (min !== null && p < min) return toast.error(`${formatPkr(p)} is below the wholesale price of ${formatPkr(min)} for ${ql.name}.`);
+    if (min !== null && p < min) return toast.error(`Price for ${ql.name} is below the wholesale price.`);
     setLines((prev) => prev.map((l, j) => (j === i ? { ...l, price_override_paisa: p === ql.catalog_price_paisa ? null : p } : l)));
   };
 

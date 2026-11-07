@@ -449,7 +449,7 @@ fn salesman_sets_any_price_but_never_below_wholesale() {
     assert_eq!(sale(&mut app, 25_000, 0).unwrap().sale.total_paisa, 25_000, "or raise it");
     assert_eq!(sale(&mut app, 14_000, 0).unwrap().sale.total_paisa, 14_000, "exactly wholesale is fine");
     let e = sale(&mut app, 13_900, 0).unwrap_err().to_string();
-    assert!(e.contains("below the wholesale price") && e.contains("140.00") && e.contains("139.00"), "{}", e);
+    assert!(e.contains("below the wholesale price") && !e.contains("140") && !e.contains("139"), "the message must not show amounts: {}", e);
 }
 
 #[test]
@@ -465,7 +465,8 @@ fn without_wholesale_the_floor_is_the_cost() {
         lines: vec![CheckoutLineInput { variant_id: v.clone(), unit_id: unit.clone(), qty_milli: 1000, discount_paisa: 0, price_override_paisa: Some(4_000) }],
         global_discount_paisa: 0, tenders: cash(4_000), approval: None,
     });
-    assert!(r.unwrap_err().to_string().contains("below the wholesale price of PKR 50.00"));
+    let e = r.unwrap_err().to_string();
+    assert!(e.contains("below the wholesale price") && !e.contains("50.00"), "{}", e);
 }
 
 #[test]

@@ -1,0 +1,60 @@
+# Builds the Next POS Mobile test APK on GitHub's servers (nothing to install on your PC).
+# GitHub → Actions → "Android APK" → Run workflow. When it finishes, download
+# "NextPOS-Mobile-debug-apk" from the run page and install the .apk on the phone.
+name: Android APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Rust with Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Use the Android NDK that comes with GitHub's machine
+        run: echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - name: Install the screens' packages
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Install the Tauri tool
+        working-directory: apps/mobile
+        run: npm install
+
+      - name: Create the Android project and icons
+        working-directory: apps/mobile
+        run: |
+          npx tauri android init --ci
+          npx tauri icon ../desktop/src-tauri/icons/icon.png
+
+      - name: Build the debug APK
+        working-directory: apps/mobile
+        run: npx tauri android build --apk --debug --ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NextPOS-Mobile-debug-apk
+          path: apps/mobile/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14

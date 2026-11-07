@@ -115,7 +115,7 @@ fn test_high_volume_50k_items_benchmark() {
         max_allowed_secs
     );
 
-    // Test sub-100ms lookup speed on the 50,000 row catalog (allow 500ms in debug mode under parallel test load)
+    // Test sub-100ms lookup speed on the 50,000 row catalog
     let search_start = Instant::now();
     let sample_barcode = "8964000025000";
     let found = CatalogRepo::get_by_barcode(&conn, sample_barcode)
@@ -125,5 +125,5 @@ fn test_high_volume_50k_items_benchmark() {
 
     println!("Lookup by barcode in 50,000 items took: {:?}", search_duration);
     assert_eq!(found.sku, "SKU-025000");
-    assert!(search_duration.as_millis() < 500, "Search took longer than 500ms");
+    assert!(search_duration.as_millis() < 100, "Search took longer than 100ms");
 }

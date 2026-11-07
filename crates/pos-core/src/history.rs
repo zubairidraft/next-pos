@@ -272,6 +272,27 @@ fn build_paid_text(conn: &Connection, doc_no: &str) -> String {
     }
 }
 
+impl PosApp {
+    /// Lines the user did not re-price keep the price they were sold at. The edit
+    /// screen sends `price_override_paisa = None` for those, so take the old line's
+    /// unit price (same item and unit) instead of today's catalog price.
+    fn resolve_edit_lines(&self, sale_id: &str, lines: &[super::CheckoutLineInput]) -> Result<Vec<super::CheckoutLineInput>> {
+        let old = super::load_sale(self.conn()?, sale_id)?;
+        Ok(lines
+            .iter()
+            .map(|l| {
+                let mut l = l.clone();
+                if l.price_override_paisa.is_none() {
+                    if let Some(ol) = old.lines.iter().find(|ol| ol.variant_id == l.variant_id && ol.unit_id == l.unit_id) {
+                        l.price_override_paisa = Some(ol.unit_price_paisa);
+                    }
+                }
+                l
+            })
+            .collect())
+    }
+}
+
 // ---------------------------------------------------------------- PosApp Implementation
 
 impl PosApp {
@@ -512,10 +533,7 @@ impl PosApp {
             None => None,
         };
 
-        // Calculate line totals and taxes
-        let mut subtotal: i64 = 0;
-        let mut line_discounts: i64 = 0;
-        let tax_sum: i64 = 0;
+        // Stock warnings (totals come from the same quote as checkout, below)
         let mut stock_warnings = Vec::new();
 
         for line in &input.lines {
@@ -527,10 +545,7 @@ impl PosApp {
             }
             .unwrap_or(0);
 
-            let unit_price = line.price_override_paisa.unwrap_or(cat_price);
-            let gross = mul_div_half_up(line.qty_milli, unit_price, 1000);
-            subtotal += gross;
-            line_discounts += line.discount_paisa;
+            let _ = cat_price;
 
             // Check stock warning
             let is_service: bool = conn
@@ -573,8 +588,9 @@ impl PosApp {
             }
         }
 
-        let total_discount = line_discounts + input.global_discount_paisa;
-        let new_total_paisa = subtotal - total_discount + tax_sum;
+        let resolved = self.resolve_edit_lines(&input.sale_id, &input.lines)?;
+        let quote = self.quote(input.customer_id.as_deref(), &resolved, input.global_discount_paisa)?;
+        let new_total_paisa = quote.total_paisa;
         let diff_paisa = new_total_paisa - old_total_paisa;
 
         Ok(SaleEditPreview {
@@ -609,6 +625,25 @@ impl PosApp {
         }
 
         let now_str = now().to_rfc3339();
+
+        // Same prices, discounts and tax as checkout. Untouched lines keep their old price.
+        let resolved = self.resolve_edit_lines(&input.sale_id, &input.lines)?;
+        let quote = self.quote(input.customer_id.as_deref(), &resolved, input.global_discount_paisa)?;
+        let post_lines: Vec<PostSaleLineInput> = quote
+            .lines
+            .iter()
+            .zip(input.lines.iter())
+            .map(|(q, orig)| PostSaleLineInput {
+                variant_id: q.variant_id.clone(),
+                unit_id: q.unit_id.clone(),
+                qty_milli: q.qty_milli,
+                unit_price_paisa: q.unit_price_paisa,
+                discount_paisa: q.discount_paisa,
+                tax_paisa: q.tax_paisa,
+                // Only a price the user typed in this edit counts as a price change by the editor.
+                price_override_by: if orig.price_override_paisa.is_some() { Some(actor_id.clone()) } else { None },
+            })
+            .collect();
 
         {
             let conn = self.conn_mut()?;
@@ -821,23 +856,6 @@ impl PosApp {
                 .flatten(),
             None => None,
         };
-
-        let post_lines: Vec<PostSaleLineInput> = input
-            .lines
-            .iter()
-            .map(|l| PostSaleLineInput {
-                variant_id: l.variant_id.clone(),
-                unit_id: l.unit_id.clone(),
-                qty_milli: l.qty_milli,
-                unit_price_paisa: l.price_override_paisa.unwrap_or_else(|| {
-                    let factor = unit_factor(&tx, &l.variant_id, &l.unit_id).unwrap_or(1000);
-                    catalog_price(&tx, &l.variant_id, &l.unit_id, factor, "retail").unwrap_or(None).unwrap_or(0)
-                }),
-                discount_paisa: l.discount_paisa,
-                tax_paisa: 0,
-                price_override_by: if l.price_override_paisa.is_some() { Some(actor_id.clone()) } else { None },
-            })
-            .collect();
 
         let outcome = SaleRepo::validate_and_price_lines(&tx, &post_lines, customer_list.as_deref())?;
         let _new_lines_dto = SaleRepo::insert_lines_and_movements(
@@ -1431,15 +1449,36 @@ impl PosApp {
             ],
         )?;
 
-        // 2 & 3. Reverse old lines and adjust average cost
-        for ol in &old_lines {
-            // Read on_hand and avg_cost BEFORE reversal
-            let (cur_on_hand, cur_avg_cost) = match InventoryRepo::get_balance(&tx, &ol.variant_id)? {
-                Some(b) => (b.on_hand_milli, b.avg_cost_paisa),
-                None => (0, 0),
-            };
+        // 2. Stock and cost per item BEFORE the edit.
+        let mut variants: Vec<String> = Vec::new();
+        for v in old_lines.iter().map(|l| &l.variant_id).chain(input.lines.iter().map(|l| &l.variant_id)) {
+            if !variants.contains(v) {
+                variants.push(v.clone());
+            }
+        }
+        let mut before: std::collections::HashMap<String, (i64, i64)> = std::collections::HashMap::new();
+        for v in &variants {
+            let b = InventoryRepo::get_balance(&tx, v)?.map(|b| (b.on_hand_milli, b.avg_cost_paisa)).unwrap_or((0, 0));
+            before.insert(v.clone(), b);
+        }
 
-            // Reversal movement
+        // 3. Replace the lines. The new lines go in first (stock in), then the old lines
+        // are taken back out, so only the real difference has to be in stock: fixing the
+        // rate of a purchase that is partly sold works; lowering the qty below what was
+        // already sold is refused.
+        tx.execute("DELETE FROM purchase_lines WHERE purchase_id = ?1", params![input.purchase_id])?;
+
+        let new_lines = PurchaseRepo::build_and_insert_purchase_lines(
+            &tx,
+            &input.purchase_id,
+            &doc_no,
+            &input.lines,
+            &allocations,
+            Some(&actor_id),
+            "purchase_edit",
+        )?;
+
+        for ol in &old_lines {
             let reversal_result = InventoryRepo::record_movement(
                 &tx,
                 RecordMovementParams {
@@ -1454,8 +1493,10 @@ impl PosApp {
                     user_id: Some(actor_id.clone()),
                 },
             );
-
-            if let Err(_e) = reversal_result {
+            if let Err(e) = reversal_result {
+                if !matches!(e, PosError::NegativeStockBlocked { .. }) {
+                    return Err(e);
+                }
                 let name: String = tx
                     .query_row(
                         "SELECT p.name FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id = ?1",
@@ -1463,8 +1504,9 @@ impl PosApp {
                         |r| r.get(0),
                     )
                     .unwrap_or_else(|_| "Item".into());
-
-                let sold = (ol.received_qty_milli - cur_on_hand).max(0);
+                let (cur_on_hand, _) = before.get(&ol.variant_id).copied().unwrap_or((0, 0));
+                let old_qty: i64 = old_lines.iter().filter(|l| l.variant_id == ol.variant_id).map(|l| l.received_qty_milli).sum();
+                let sold = (old_qty - cur_on_hand).max(0);
                 return Err(PosError::BusinessRule(format!(
                     "{}: {} already sold from this purchase. You can lower qty by at most {}.",
                     name,
@@ -1472,30 +1514,45 @@ impl PosApp {
                     format_milli_qty(cur_on_hand.max(0))
                 )));
             }
-
-            // Fix average cost after reversal:
-            // If on_hand - q > 0: new_avg = max(0, (on_hand*avg - q*c) / (on_hand - q))
-            let rem_qty = cur_on_hand - ol.received_qty_milli;
-            if rem_qty > 0 {
-                let cur_val = (cur_on_hand * cur_avg_cost) / 1000;
-                let rev_val = (ol.received_qty_milli * ol.unit_cost_paisa) / 1000;
-                let new_avg = ((cur_val - rev_val) * 1000) / rem_qty;
-                InventoryRepo::update_avg_cost(&tx, &ol.variant_id, new_avg.max(0))?;
-            }
         }
 
-        // 4. Delete old lines and insert new lines + movements + WAC
-        tx.execute("DELETE FROM purchase_lines WHERE purchase_id = ?1", params![input.purchase_id])?;
-
-        let new_lines = PurchaseRepo::build_and_insert_purchase_lines(
-            &tx,
-            &input.purchase_id,
-            &doc_no,
-            &input.lines,
-            &allocations,
-            Some(&actor_id),
-            "purchase_edit",
-        )?;
+        // 4. Average cost. Units of this bill still in stock are re-costed at the new
+        // rate; added units come in at the new rate, removed units leave at it. Sales
+        // already made keep their saved cost (past profit is not recalculated).
+        for v in &variants {
+            let (oh, avg) = before.get(v).copied().unwrap_or((0, 0));
+            let old_q: i128 = old_lines.iter().filter(|l| &l.variant_id == v).map(|l| l.received_qty_milli as i128).sum();
+            let old_val: i128 = old_lines
+                .iter()
+                .filter(|l| &l.variant_id == v)
+                .map(|l| l.received_qty_milli as i128 * l.unit_cost_paisa as i128 / 1000)
+                .sum();
+            let (new_q, new_val): (i128, i128) = input
+                .lines
+                .iter()
+                .zip(allocations.iter())
+                .filter(|(l, _)| &l.variant_id == v)
+                .fold((0, 0), |(q, val), (l, a)| (q + l.received_qty_milli as i128, val + a.0 as i128));
+            let oh = oh as i128;
+            let value_before = oh * avg as i128 / 1000;
+            let value_after = if new_q == 0 {
+                value_before - old_val
+            } else if old_q == 0 {
+                value_before + new_val
+            } else {
+                let kept = oh.max(0).min(old_q);
+                value_before + kept * new_val / new_q - kept * old_val / old_q + (new_q - old_q) * new_val / new_q
+            };
+            let qty_after = oh - old_q + new_q;
+            let new_avg = if qty_after > 0 {
+                (value_after.max(0) * 1000 / qty_after) as i64
+            } else if new_q > 0 {
+                (new_val * 1000 / new_q) as i64
+            } else {
+                avg
+            };
+            InventoryRepo::update_avg_cost(&tx, v, new_avg)?;
+        }
 
         // 5. Update purchase header
         let new_revision = revision + 1;

@@ -264,7 +264,7 @@ export function CheckoutView() {
       return false;
     }
     if (q.min_price_paisa != null && p < q.min_price_paisa) {
-      toast.error(`${formatPkr(p)} is below the wholesale price of ${formatPkr(q.min_price_paisa)} for ${q.name}.`);
+      toast.error(`Price for ${q.name} is below the wholesale price.`);
       return false;
     }
     updateLine(i, { price_override_paisa: p === q.catalog_price_paisa ? null : p });
@@ -438,7 +438,6 @@ export function CheckoutView() {
                         <div className="text-[11px] text-slate-400">
                           {q?.sku}
                           {q && l.price_override_paisa != null && <span className="text-amber-600"> · price changed from {formatPkr(q.catalog_price_paisa)}</span>}
-                          {q?.min_price_paisa != null && <span> · lowest {formatPkr(q.min_price_paisa)}</span>}
                         </div>
                       </td>
                       <td className={`px-2 py-1.5 text-right text-xs whitespace-nowrap ${short ? "text-rose-600 font-semibold" : "text-slate-500"}`}>

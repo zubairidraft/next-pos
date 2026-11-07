@@ -157,11 +157,11 @@ impl SaleRepo {
                                 |r| r.get(0),
                             )
                             .unwrap_or_else(|_| "this item".into());
+                        // No amounts: the screen may face the customer, and the
+                        // wholesale price must not be shown to them.
                         return Err(PosError::BusinessRule(format!(
-                            "Price for {} cannot be below the wholesale price of {} (you entered {})",
-                            name,
-                            crate::money::Paisa(floor),
-                            crate::money::Paisa(net_unit)
+                            "Price for {} is below the wholesale price",
+                            name
                         )));
                     }
                 }

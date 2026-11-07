@@ -91,9 +91,14 @@ export function SaleEditView({
       : null
   );
 
-  // Global bill discount
+  // Global bill discount. sale.discount_paisa holds line discounts + bill discount,
+  // so the bill discount alone is the total minus the line discounts.
+  const originalBillDiscount = Math.max(
+    0,
+    sale.discount_paisa - sale.lines.reduce((s, l) => s + (l.discount_paisa || 0), 0)
+  );
   const [billDiscount, setBillDiscount] = useState<string>(() =>
-    sale.discount_paisa ? String(sale.discount_paisa / 100) : "0"
+    originalBillDiscount ? String(originalBillDiscount / 100) : "0"
   );
 
   // Edit preview / quote
@@ -132,9 +137,9 @@ export function SaleEditView({
       }
     }
     if ((customer?.id || null) !== (sale.customer_id || null)) return true;
-    if (toPaisa(billDiscount) !== sale.discount_paisa) return true;
+    if (toPaisa(billDiscount) !== originalBillDiscount) return true;
     return false;
-  }, [lines, customer, billDiscount, sale]);
+  }, [lines, customer, billDiscount, sale, originalBillDiscount]);
 
   // Form refs
   const itemRef = useRef<ItemSearchHandle>(null);
@@ -313,7 +318,7 @@ export function SaleEditView({
       return;
     }
     if (l.min_price_paisa != null && p < l.min_price_paisa) {
-      toast.error(`${formatPkr(p)} is below wholesale price ${formatPkr(l.min_price_paisa)} for ${l.name}`);
+      toast.error(`Price for ${l.name} is below the wholesale price.`);
       return;
     }
     updateLine(i, {
