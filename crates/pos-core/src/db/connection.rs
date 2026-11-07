@@ -79,6 +79,15 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     Ok(())
 }
 
+/// Applies migrations up to a specific version target.
+pub fn run_migrations_to(conn: &mut Connection, target: u32) -> Result<()> {
+    embedded::migrations::runner()
+        .set_target(refinery::Target::Version(target))
+        .run(conn)
+        .map_err(|e| PosError::Db(format!("Database migration failed: {}", e)))?;
+    Ok(())
+}
+
 /// Highest applied migration version (e.g. 7 for V7), or 0 for an empty database.
 pub fn schema_version(conn: &Connection) -> i64 {
     conn.query_row(

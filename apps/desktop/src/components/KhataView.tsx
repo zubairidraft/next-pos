@@ -1,664 +1,356 @@
-import React, { useState, useEffect } from "react";
-import { api } from "../lib/api";
-import {
-  Users,
-  Building2,
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  Search,
-  MessageCircle,
-  FileText,
-  DollarSign,
-  Printer,
-  X,
-  CheckCircle2,
-  Calendar,
-  Sparkles,
-} from "lucide-react";
+import { useEffect, useState } from "react";
+import { BookOpen, FileText, Loader2, MessageCircle, Plus, Printer, Search, UserPlus, Wallet, X } from "lucide-react";
+import { AgingReportBucket, api, CustomerSummary, errorText, formatPkr, isBrowserTest, KhataStatement } from "../lib/api";
+import { useSession } from "../context/SessionContext";
+import { useToast } from "../lib/toast";
+import { A4_PAGE, printElement } from "../lib/print";
 
-interface KhataParty {
-  id: string;
-  party_type: "customer" | "vendor";
-  name: string;
-  phone: string;
-  credit_limit_paisa: number;
-  balance_paisa: number;
-  unpaid_invoices_count: number;
-}
+const today = () => new Date().toISOString().slice(0, 10);
+const monthsAgo = (n: number) => {
+  const d = new Date();
+  d.setMonth(d.getMonth() - n);
+  return d.toISOString().slice(0, 10);
+};
 
-const SAMPLE_PARTIES: KhataParty[] = [
-  {
-    id: "cust-01",
-    party_type: "customer",
-    name: "Haji Muhammad Aslam (Kiriyana Store)",
-    phone: "0300-1234567",
-    credit_limit_paisa: 5000000,
-    balance_paisa: 2850000,
-    unpaid_invoices_count: 3,
-  },
-  {
-    id: "cust-02",
-    party_type: "customer",
-    name: "Chaudhry Riaz Ahmed (Farmhouse)",
-    phone: "0301-7654321",
-    credit_limit_paisa: 3000000,
-    balance_paisa: 3200000,
-    unpaid_invoices_count: 4,
-  },
-  {
-    id: "cust-03",
-    party_type: "customer",
-    name: "Malik Usman General Store",
-    phone: "0321-9876543",
-    credit_limit_paisa: 10000000,
-    balance_paisa: 1420000,
-    unpaid_invoices_count: 2,
-  },
-  {
-    id: "vend-01",
-    party_type: "vendor",
-    name: "Nestle Pakistan Distribution",
-    phone: "042-111637853",
-    credit_limit_paisa: 0,
-    balance_paisa: 12500000,
-    unpaid_invoices_count: 2,
-  },
-  {
-    id: "vend-02",
-    party_type: "vendor",
-    name: "Unilever Pakistan Traders",
-    phone: "021-35689000",
-    credit_limit_paisa: 0,
-    balance_paisa: 8400000,
-    unpaid_invoices_count: 1,
-  },
-];
+/** Customer and vendor khata: balances, statements, payments received, WhatsApp reminders. */
+export function KhataView() {
+  const toast = useToast();
+  const { can } = useSession();
+  const [tab, setTab] = useState<"customer" | "vendor">("customer");
+  const [query, setQuery] = useState("");
+  const [parties, setParties] = useState<CustomerSummary[] | null>(null);
+  const [aging, setAging] = useState<AgingReportBucket[]>([]);
+  const [payFor, setPayFor] = useState<CustomerSummary | null>(null);
+  const [statementFor, setStatementFor] = useState<CustomerSummary | null>(null);
+  const [adding, setAdding] = useState(false);
 
-export const KhataView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"customer" | "vendor">("customer");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [parties, setParties] = useState<KhataParty[]>(SAMPLE_PARTIES);
-
-  const loadParties = async () => {
-    try {
-      const [custs, vends] = await Promise.all([
-        api.listKhataParties("customer"),
-        api.listKhataParties("vendor"),
-      ]);
-      const combined: KhataParty[] = [];
-      if (custs && custs.length > 0) {
-        custs.forEach((c) => {
-          if (c.id !== "cust-walkin") {
-            combined.push({
-              id: c.id,
-              party_type: "customer",
-              name: c.name,
-              phone: c.phone || "N/A",
-              credit_limit_paisa: c.credit_limit_paisa,
-              balance_paisa: c.balance_paisa,
-              unpaid_invoices_count: c.balance_paisa > 0 ? 1 : 0,
-            });
-          }
-        });
-      }
-      if (vends && vends.length > 0) {
-        vends.forEach((v) => {
-          combined.push({
-            id: v.id,
-            party_type: "vendor",
-            name: v.name,
-            phone: v.phone || "N/A",
-            credit_limit_paisa: v.credit_limit_paisa,
-            balance_paisa: v.balance_paisa,
-            unpaid_invoices_count: v.balance_paisa > 0 ? 1 : 0,
-          });
-        });
-      }
-      if (combined.length > 0) {
-        setParties(combined);
-      }
-    } catch (err) {
-      console.warn("Could not load parties from SQLite, keeping default state:", err);
-    }
+  const load = () => {
+    setParties(null);
+    (tab === "customer" ? api.listCustomers(query) : api.listVendors(query))
+      .then(setParties)
+      .catch((e) => {
+        setParties([]);
+        toast.error(errorText(e));
+      });
   };
 
   useEffect(() => {
-    loadParties();
-  }, []);
+    const t = setTimeout(load, 150);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, query]);
 
-  // Modals
-  const [selectedParty, setSelectedParty] = useState<KhataParty | null>(null);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-  const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
-  const [paymentAmountStr, setPaymentAmountStr] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("cash");
-  const [paymentToast, setPaymentToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (can("ReportsView")) api.aging(tab).then(setAging).catch(() => setAging([]));
+    else setAging([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
-  const formatPkr = (paisa: number) => `PKR ${(paisa / 100).toFixed(2)}`;
+  const total = (parties || []).reduce((s, p) => s + p.balance_paisa, 0);
 
-  const filteredParties = parties.filter(
-    (p) =>
-      p.party_type === activeTab &&
-      (p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.phone.includes(searchQuery))
-  );
-
-  const totalReceivables = parties
-    .filter((p) => p.party_type === "customer")
-    .reduce((sum, p) => sum + p.balance_paisa, 0);
-
-  const totalPayables = parties
-    .filter((p) => p.party_type === "vendor")
-    .reduce((sum, p) => sum + p.balance_paisa, 0);
-
-  const overLimitCount = parties.filter(
-    (p) =>
-      p.party_type === "customer" &&
-      p.credit_limit_paisa > 0 &&
-      p.balance_paisa > p.credit_limit_paisa
-  ).length;
-
-  const handleOpenWhatsApp = (party: KhataParty) => {
-    const digits = party.phone.replace(/\D/g, "");
-    const cleanPhone = digits.startsWith("0")
-      ? `92${digits.slice(1)}`
-      : digits.startsWith("92")
-      ? digits
-      : `92${digits}`;
-
-    const msg = `Dear ${party.name},\nYour outstanding Khata balance with us is ${formatPkr(
-      party.balance_paisa
-    )}. Kindly arrange payment at your earliest convenience. Thank you!`;
-
-    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
-    window.open(url, "_blank");
-  };
-
-  const handleProcessPayment = () => {
-    if (!selectedParty) return;
-    const amt = parseFloat(paymentAmountStr) || 0;
-    if (amt <= 0) {
-      alert("Please enter a valid payment amount!");
-      return;
+  const whatsapp = async (p: CustomerSummary) => {
+    try {
+      const url = await api.openWhatsappReminder(p.id);
+      // Browser test mode: the desktop app opens the link itself.
+      if (isBrowserTest && url.startsWith("https://wa.me/")) window.open(url, "_blank", "noopener");
+    } catch (e) {
+      toast.error(errorText(e));
     }
-
-    const paisa = Math.round(amt * 100);
-    setParties((prev) =>
-      prev.map((p) => {
-        if (p.id === selectedParty.id) {
-          return {
-            ...p,
-            balance_paisa: Math.max(0, p.balance_paisa - paisa),
-          };
-        }
-        return p;
-      })
-    );
-
-    setIsPaymentModalOpen(false);
-    setPaymentAmountStr("");
-    setPaymentToast(
-      `Payment of ${formatPkr(paisa)} allocated via FIFO for ${selectedParty.name}!`
-    );
-    setTimeout(() => setPaymentToast(null), 5000);
   };
 
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
-      {/* Toast Notification */}
-      {paymentToast && (
-        <div className="fixed top-16 right-6 z-50 bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-emerald-400 text-sm font-semibold animate-in fade-in slide-in-from-top-2">
-          <CheckCircle2 className="w-5 h-5" />
-          <span>{paymentToast}</span>
-        </div>
-      )}
-
-      {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm p-5 flex flex-col gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <span>Customer & Vendor Khata Ledger</span>
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Accounts receivable, payable, credit limits, automated aging analysis, and WhatsApp payment reminders.
-          </p>
+          <h2 className="text-xl font-bold flex items-center gap-2"><BookOpen className="w-5 h-5 text-emerald-500" /> Khata</h2>
+          <p className="text-xs text-slate-500">Who owes the shop, and whom the shop owes.</p>
         </div>
-
-        {/* Tab switch */}
-        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-950 p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 self-start md:self-auto">
-          <button
-            onClick={() => setActiveTab("customer")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
-              activeTab === "customer"
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Customers (Udhar Receivables)</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("vendor")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
-              activeTab === "vendor"
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <Building2 className="w-4 h-4" />
-            <span>Suppliers (Payables)</span>
-          </button>
+        <div className="flex gap-2">
+          <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-semibold">
+            {(["customer", "vendor"] as const).map((t) => (
+              <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-lg ${tab === t ? "bg-white dark:bg-slate-900 shadow" : "text-slate-500"}`}>
+                {t === "customer" ? "Customers" : "Vendors"}
+              </button>
+            ))}
+          </div>
+          {(tab === "customer" ? can("SalesCreate") : can("PurchaseEntry")) && (
+            <button onClick={() => setAdding(true)} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1">
+              <UserPlus className="w-4 h-4" /> Add {tab}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* KPI Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Card 1: Receivables */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold">
-            <span>Total Receivables (Customers Owe Us)</span>
-            <TrendingUp className="w-4 h-4 text-emerald-500" />
-          </div>
-          <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2 font-mono">
-            {formatPkr(totalReceivables)}
-          </div>
-        </div>
-
-        {/* Card 2: Payables */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold">
-            <span>Total Payables (We Owe Suppliers)</span>
-            <TrendingDown className="w-4 h-4 text-indigo-500" />
-          </div>
-          <div className="text-2xl font-black text-indigo-600 dark:text-indigo-300 mt-2 font-mono">
-            {formatPkr(totalPayables)}
-          </div>
-        </div>
-
-        {/* Card 3: Overdue Accounts */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold">
-            <span>Credit Limit Breaches</span>
-            <AlertTriangle className="w-4 h-4 text-amber-500" />
-          </div>
-          <div className="text-2xl font-black text-amber-600 dark:text-amber-300 mt-2 font-mono">
-            {overLimitCount} Accounts
-          </div>
-          <div className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
-            Exceeds allowed credit limit
-          </div>
-        </div>
-      </div>
-
-      {/* Aging Analysis Banner */}
-      {activeTab === "customer" && (
-        <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
-          <div className="text-xs text-slate-700 dark:text-slate-300 font-semibold flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-emerald-500" />
-            <span>Receivables Aging Breakdown:</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="px-3 py-1 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 rounded-lg border border-emerald-200 dark:border-emerald-500/20 font-medium">
-              0-30 Days: <strong className="font-mono">PKR 34,200</strong>
-            </span>
-            <span className="px-3 py-1 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 rounded-lg border border-sky-200 dark:border-sky-500/20 font-medium">
-              31-60 Days: <strong className="font-mono">PKR 25,500</strong>
-            </span>
-            <span className="px-3 py-1 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 rounded-lg border border-amber-200 dark:border-amber-500/20 font-medium">
-              61-90 Days: <strong className="font-mono">PKR 15,000</strong>
-            </span>
-            <span className="px-3 py-1 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 rounded-lg border border-rose-200 dark:border-rose-500/20 font-medium">
-              90+ Days: <strong className="font-mono">PKR 0.00</strong>
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Search and Table */}
-      <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
-        {/* Search Input */}
+      <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-start">
         <div className="relative">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search accounts by name or phone number..."
-            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-          />
+          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or phone" className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm" />
         </div>
-
-        {/* Khata Party Table */}
-        <div className="overflow-x-auto bg-white dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 rounded-xl">
-          <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
-            <thead className="bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 text-[10px] uppercase border-b border-slate-200 dark:border-slate-800">
-              <tr>
-                <th className="py-3 px-4">Account Name</th>
-                <th className="py-3 px-4">Phone / WhatsApp</th>
-                <th className="py-3 px-4 text-center">Credit Limit</th>
-                <th className="py-3 px-4 text-right">Outstanding Balance</th>
-                <th className="py-3 px-4 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60 font-sans">
-              {filteredParties.map((party) => {
-                const isOverLimit =
-                  party.credit_limit_paisa > 0 &&
-                  party.balance_paisa > party.credit_limit_paisa;
-                const limitUsagePercent =
-                  party.credit_limit_paisa > 0
-                    ? Math.min(
-                        100,
-                        Math.round((party.balance_paisa / party.credit_limit_paisa) * 100)
-                      )
-                    : 0;
-
-                return (
-                  <tr key={party.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/20 transition">
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-slate-900 dark:text-white text-xs">{party.name}</div>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-slate-600 dark:text-slate-300">{party.phone}</td>
-                    <td className="py-3 px-4 text-center">
-                      {party.credit_limit_paisa > 0 ? (
-                        <div className="space-y-1">
-                          <span className="text-[11px] text-slate-700 dark:text-slate-300 font-mono">
-                            {formatPkr(party.credit_limit_paisa)}
-                          </span>
-                          <div className="w-24 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto overflow-hidden">
-                            <div
-                              className={`h-full ${
-                                isOverLimit ? "bg-rose-500" : "bg-emerald-500"
-                              }`}
-                              style={{ width: `${limitUsagePercent}%` }}
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-slate-400">Unlimited</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div
-                        className={`font-black text-sm font-mono ${
-                          activeTab === "customer"
-                            ? isOverLimit
-                              ? "text-rose-600 dark:text-rose-400"
-                              : "text-emerald-600 dark:text-emerald-400"
-                            : "text-indigo-600 dark:text-indigo-300"
-                        }`}
-                      >
-                        {formatPkr(party.balance_paisa)}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        {party.unpaid_invoices_count} pending invoices
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          onClick={() => {
-                            setSelectedParty(party);
-                            setPaymentAmountStr((party.balance_paisa / 100).toFixed(0));
-                            setIsPaymentModalOpen(true);
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-600/20 dark:hover:bg-emerald-600/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold rounded-lg border border-emerald-200 dark:border-emerald-500/30 transition"
-                          title="Record Payment"
-                        >
-                          <DollarSign className="w-3.5 h-3.5" />
-                          <span>Receive Payment</span>
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setSelectedParty(party);
-                            setIsStatementModalOpen(true);
-                          }}
-                          className="p-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-200 dark:border-slate-700 transition"
-                          title="Account Statement"
-                        >
-                          <FileText className="w-3.5 h-3.5" />
-                        </button>
-
-                        <button
-                          onClick={() => handleOpenWhatsApp(party)}
-                          className="p-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-800/40 text-emerald-600 dark:text-emerald-400 rounded-lg border border-emerald-200 dark:border-emerald-500/30 transition"
-                          title="Send WhatsApp Reminder"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="px-4 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 text-sm">
+          {tab === "customer" ? "Customers owe" : "Shop owes vendors"} <b>{formatPkr(Math.abs(total))}</b>
         </div>
       </div>
 
-      {/* Modal 1: Receive Payment Modal */}
-      {isPaymentModalOpen && selectedParty && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950/60">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Receive Khata Payment</span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{selectedParty.name}</p>
-              </div>
-              <button
-                onClick={() => setIsPaymentModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      {aging.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {aging.map((b) => (
+            <div key={b.bucket_name} className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+              <div className="text-slate-500">{b.bucket_name}</div>
+              <div className="text-sm font-bold">{formatPkr(b.amount_paisa)}</div>
+              <div className="text-slate-400">{b.invoice_count} invoices</div>
             </div>
-
-            <div className="p-6 space-y-4">
-              <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 flex justify-between items-center">
-                <span className="text-xs text-slate-500 dark:text-slate-400">Total Outstanding Balance:</span>
-                <span className="text-base font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                  {formatPkr(selectedParty.balance_paisa)}
-                </span>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                  Payment Amount Received (PKR)
-                </label>
-                <input
-                  type="number"
-                  step="1"
-                  min="0"
-                  value={paymentAmountStr}
-                  onChange={(e) => setPaymentAmountStr(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
-                  autoFocus
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                  Deposit / Tender Method
-                </label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="cash">Cash</option>
-                  <option value="bank">Bank Transfer</option>
-                  <option value="jazzcash">JazzCash</option>
-                  <option value="easypaisa">EasyPaisa</option>
-                  <option value="raast">Raast Instant</option>
-                  <option value="cheque">Bank Cheque</option>
-                </select>
-              </div>
-
-              {/* FIFO Allocation Preview Note */}
-              <div className="p-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-xl text-xs text-emerald-700 dark:text-emerald-300 space-y-1">
-                <div className="font-bold flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Automatic FIFO Invoice Settlement</span>
-                </div>
-                <p className="text-[11px] text-emerald-600 dark:text-emerald-200/80">
-                  Payment will automatically extinguish the oldest open credit invoices in FIFO sequence,
-                  and record the transaction on the immutable customer ledger.
-                </p>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-950/80 border-t border-slate-200 dark:border-slate-800 flex justify-between">
-              <button
-                onClick={() => setIsPaymentModalOpen(false)}
-                className="px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleProcessPayment}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Confirm & Post Payment</span>
-              </button>
-            </div>
-          </div>
+          ))}
         </div>
       )}
 
-      {/* Modal 2: Statement View Modal */}
-      {isStatementModalOpen && selectedParty && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950/60">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Khata Account Statement</span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {selectedParty.name} • {selectedParty.phone}
-                </p>
-              </div>
-              <button
-                onClick={() => setIsStatementModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 dark:bg-slate-900 text-xs text-slate-500">
+            <tr className="text-left">
+              <th className="px-3 py-2">Name</th>
+              <th className="px-3 py-2">Phone</th>
+              <th className="px-3 py-2 text-right">Credit limit</th>
+              <th className="px-3 py-2 text-right">Balance</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {parties === null && (
+              <tr><td colSpan={5} className="py-8"><Loader2 className="w-5 h-5 animate-spin mx-auto text-slate-400" /></td></tr>
+            )}
+            {parties?.length === 0 && (
+              <tr><td colSpan={5} className="py-8 text-center text-slate-500">No {tab}s yet.</td></tr>
+            )}
+            {parties?.map((p) => (
+              <tr key={p.id} className="border-t border-slate-100 dark:border-slate-800">
+                <td className="px-3 py-2 font-semibold">{p.name}{p.name_ur && <span className="block text-xs font-normal text-slate-400" dir="rtl">{p.name_ur}</span>}</td>
+                <td className="px-3 py-2 text-slate-500">{p.phone || "—"}</td>
+                <td className="px-3 py-2 text-right">{p.credit_limit_paisa ? formatPkr(p.credit_limit_paisa) : "—"}</td>
+                <td className={`px-3 py-2 text-right font-bold ${p.balance_paisa > 0 ? "text-rose-600" : "text-emerald-600"}`}>{formatPkr(p.balance_paisa)}</td>
+                <td className="px-3 py-2">
+                  <div className="flex justify-end gap-1.5">
+                    <button onClick={() => setStatementFor(p)} className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-semibold flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> Statement</button>
+                    {tab === "customer" && (
+                      <>
+                        <button onClick={() => setPayFor(p)} className="px-2 py-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1"><Wallet className="w-3.5 h-3.5" /> Receive</button>
+                        {p.phone && p.balance_paisa > 0 && (
+                          <button onClick={() => whatsapp(p)} title="Send a WhatsApp reminder" className="px-2 py-1 rounded-lg bg-green-600 text-white text-xs font-semibold"><MessageCircle className="w-3.5 h-3.5" /></button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {tab === "vendor" && <p className="text-xs text-slate-500">Vendor balances come from purchase invoices. Recording payments to vendors is not available yet.</p>}
 
-            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-              {/* Statement Summary Card */}
-              <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-                <div>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Opening Balance</span>
-                  <span className="text-sm font-bold text-slate-900 dark:text-white font-mono">PKR 0.00</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Closing Balance</span>
-                  <span className="text-base font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                    {formatPkr(selectedParty.balance_paisa)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Transactions Ledger Table */}
-              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
-                  <thead className="bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400 text-[10px] uppercase border-b border-slate-200 dark:border-slate-800">
-                    <tr>
-                      <th className="py-2.5 px-3">Date</th>
-                      <th className="py-2.5 px-3">Doc #</th>
-                      <th className="py-2.5 px-3 text-right">Debit (Sale)</th>
-                      <th className="py-2.5 px-3 text-right">Credit (Paid)</th>
-                      <th className="py-2.5 px-3 text-right">Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60 font-sans">
-                    {[
-                      {
-                        id: "e-1",
-                        date: "2026-10-25",
-                        entry_type: "sale",
-                        source_doc: "INV-202610-0012",
-                        debit_paisa: 1500000,
-                        credit_paisa: 0,
-                        balance_paisa: 1500000,
-                      },
-                      {
-                        id: "e-2",
-                        date: "2026-10-27",
-                        entry_type: "sale",
-                        source_doc: "INV-202610-0028",
-                        debit_paisa: 2000000,
-                        credit_paisa: 0,
-                        balance_paisa: 3500000,
-                      },
-                      {
-                        id: "e-3",
-                        date: "2026-10-28",
-                        entry_type: "payment",
-                        source_doc: "RCPT-9811",
-                        debit_paisa: 0,
-                        credit_paisa: 650000,
-                        balance_paisa: selectedParty.balance_paisa,
-                      },
-                    ].map((row) => (
-                      <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/20">
-                        <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                          {row.date}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-xs text-slate-900 dark:text-white font-medium">
-                          {row.source_doc}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-amber-600 dark:text-amber-400 font-semibold">
-                          {row.debit_paisa > 0 ? formatPkr(row.debit_paisa) : "-"}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
-                          {row.credit_paisa > 0 ? formatPkr(row.credit_paisa) : "-"}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
-                          {formatPkr(row.balance_paisa)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-950/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <button
-                onClick={() => handleOpenWhatsApp(selectedParty)}
-                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition"
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>Send WhatsApp Reminder</span>
-              </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => alert("ESC/POS Thermal statement sent to receipt printer!")}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-700 transition"
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>Print Statement</span>
-                </button>
-                <button
-                  onClick={() => setIsStatementModalOpen(false)}
-                  className="px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl transition"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {payFor && <ReceivePayment party={payFor} onClose={() => setPayFor(null)} onDone={() => { setPayFor(null); load(); }} />}
+      {statementFor && <Statement party={statementFor} onClose={() => setStatementFor(null)} />}
+      {adding && <AddParty type={tab} onClose={() => setAdding(false)} onDone={() => { setAdding(false); load(); }} />}
     </div>
   );
-};
+}
+
+function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full ${wide ? "max-w-3xl" : "max-w-md"} shadow-2xl max-h-[92vh] flex flex-col`}>
+        <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <h2 className="text-base font-bold">{title}</h2>
+          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const field = "mt-1 w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm";
+
+function ReceivePayment({ party, onClose, onDone }: { party: CustomerSummary; onClose: () => void; onDone: () => void }) {
+  const toast = useToast();
+  const [amount, setAmount] = useState(party.balance_paisa > 0 ? String(party.balance_paisa / 100) : "");
+  const [method, setMethod] = useState("cash");
+  const [reference, setReference] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const r = await api.receivePayment(party.id, Math.round((parseFloat(amount) || 0) * 100), method, reference || null);
+      const n = r.allocations.length;
+      toast.success(`Received ${formatPkr(r.total_payment_paisa)}. Settled ${n} invoice${n === 1 ? "" : "s"}. New balance ${formatPkr(r.new_party_balance_paisa)}.`);
+      onDone();
+    } catch (err) {
+      toast.error(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={`Receive payment · ${party.name}`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <p className="text-sm">Current balance: <b>{formatPkr(party.balance_paisa)}</b>. The payment settles the oldest invoices first.</p>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Amount (Rs)<input autoFocus inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} className={field + " text-lg font-bold"} /></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+          Method
+          <select value={method} onChange={(e) => setMethod(e.target.value)} className={field}>
+            <option value="cash">Cash</option>
+            <option value="jazzcash">JazzCash</option>
+            <option value="easypaisa">Easypaisa</option>
+            <option value="raast">Raast</option>
+            <option value="bank">Bank transfer</option>
+            <option value="cheque">Cheque</option>
+            <option value="card">Card</option>
+          </select>
+        </label>
+        {method !== "cash" && <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Reference<input value={reference} onChange={(e) => setReference(e.target.value)} className={field} /></label>}
+        <button disabled={busy || !(parseFloat(amount) > 0)} className="w-full py-2.5 rounded-xl bg-emerald-600 disabled:opacity-40 text-white font-bold flex items-center justify-center gap-2">
+          {busy && <Loader2 className="w-4 h-4 animate-spin" />} Save payment
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+function Statement({ party, onClose }: { party: CustomerSummary; onClose: () => void }) {
+  const toast = useToast();
+  const [from, setFrom] = useState(monthsAgo(3));
+  const [to, setTo] = useState(today());
+  const [st, setSt] = useState<KhataStatement | null>(null);
+
+  useEffect(() => {
+    setSt(null);
+    // Whole local (Pakistan) days, sent as exact UTC instants.
+    const start = new Date(`${from}T00:00:00`).toISOString();
+    const end = new Date(`${to}T23:59:59.999`).toISOString();
+    api.khataStatement(party.id, start, end).then(setSt).catch((e) => toast.error(errorText(e)));
+  }, [party.id, from, to, toast]);
+
+  return (
+    <Modal title={`Statement · ${party.name}`} onClose={onClose} wide>
+      <div className="flex flex-wrap gap-3 items-end mb-3">
+        <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">From<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={field} /></label>
+        <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">To<input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={field} /></label>
+        <button
+          onClick={() => {
+            const el = document.getElementById("khata-statement-print");
+            if (el) printElement(el, { ...A4_PAGE, title: `Statement ${party.name}` });
+          }}
+          className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold flex items-center gap-1"
+        >
+          <Printer className="w-4 h-4" /> Print
+        </button>
+      </div>
+      {!st ? (
+        <Loader2 className="w-5 h-5 animate-spin mx-auto text-slate-400" />
+      ) : (
+        <div id="khata-statement-print">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-slate-500">
+              <tr className="text-left border-b border-slate-200 dark:border-slate-800">
+                <th className="py-1.5">Date</th>
+                <th>Document</th>
+                <th className="text-right">Debit</th>
+                <th className="text-right">Credit</th>
+                <th className="text-right">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-500">
+                <td className="py-1.5" colSpan={4}>Opening balance</td>
+                <td className="text-right">{formatPkr(st.opening_balance_paisa)}</td>
+              </tr>
+              {st.entries.map((e) => (
+                <tr key={e.id} className="border-b border-slate-100 dark:border-slate-800">
+                  <td className="py-1.5">{new Date(e.occurred_at).toLocaleDateString()}</td>
+                  <td>{e.source_doc}<span className="text-xs text-slate-400"> · {e.entry_type}</span></td>
+                  <td className="text-right">{e.debit_paisa ? formatPkr(e.debit_paisa) : ""}</td>
+                  <td className="text-right">{e.credit_paisa ? formatPkr(e.credit_paisa) : ""}</td>
+                  <td className="text-right font-semibold">{formatPkr(e.balance_paisa)}</td>
+                </tr>
+              ))}
+              {st.entries.length === 0 && (
+                <tr><td colSpan={5} className="py-4 text-center text-slate-500">No entries in these dates.</td></tr>
+              )}
+            </tbody>
+          </table>
+          <div className="flex justify-end gap-6 mt-3 text-sm">
+            <span>Debit {formatPkr(st.total_debit_paisa)}</span>
+            <span>Credit {formatPkr(st.total_credit_paisa)}</span>
+            <b>Closing {formatPkr(st.closing_balance_paisa)}</b>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function AddParty({ type, onClose, onDone }: { type: "customer" | "vendor"; onClose: () => void; onDone: () => void }) {
+  const toast = useToast();
+  const { can } = useSession();
+  const [f, setF] = useState({ name: "", name_ur: "", phone: "", cnic: "", ntn: "", limit: "", opening: "", wholesale: false });
+  const [busy, setBusy] = useState(false);
+  const money = can("PriceEdit");
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.createParty({
+        party_type: type,
+        name: f.name.trim(),
+        name_ur: f.name_ur || null,
+        phone: f.phone || null,
+        cnic: f.cnic || null,
+        ntn: f.ntn || null,
+        credit_limit_paisa: money ? Math.round((parseFloat(f.limit) || 0) * 100) : 0,
+        opening_balance_paisa: money ? Math.round((parseFloat(f.opening) || 0) * 100) : 0,
+        price_list_id: type === "customer" && f.wholesale ? "wholesale" : null,
+      });
+      toast.success(`${f.name} added`);
+      onDone();
+    } catch (err) {
+      toast.error(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={`Add ${type}`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 col-span-2">Name *<input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={field} /></label>
+          <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Urdu name<input dir="rtl" value={f.name_ur} onChange={(e) => setF({ ...f, name_ur: e.target.value })} className={field} /></label>
+          <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Phone<input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} className={field} placeholder="03xx-xxxxxxx" /></label>
+          {type === "customer" ? (
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">CNIC<input value={f.cnic} onChange={(e) => setF({ ...f, cnic: e.target.value })} className={field} /></label>
+          ) : (
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">NTN<input value={f.ntn} onChange={(e) => setF({ ...f, ntn: e.target.value })} className={field} /></label>
+          )}
+          {money && type === "customer" && (
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Credit limit (Rs)<input inputMode="decimal" value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value })} className={field} /></label>
+          )}
+          {money && (
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Opening balance (Rs)<input inputMode="decimal" value={f.opening} onChange={(e) => setF({ ...f, opening: e.target.value })} className={field} /></label>
+          )}
+        </div>
+        {type === "customer" && (
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <input type="checkbox" checked={f.wholesale} onChange={(e) => setF({ ...f, wholesale: e.target.checked })} /> Charge wholesale prices
+          </label>
+        )}
+        {!money && <p className="text-xs text-slate-500">Only an Owner or Manager can set a credit limit or opening balance.</p>}
+        <button disabled={busy || !f.name.trim()} className="w-full py-2.5 rounded-xl bg-emerald-600 disabled:opacity-40 text-white font-bold flex items-center justify-center gap-2">
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Save
+        </button>
+      </form>
+    </Modal>
+  );
+}

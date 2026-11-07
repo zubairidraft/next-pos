@@ -1,1071 +1,899 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+//! Tauri shell: every command is a thin wrapper around `pos_core::app::PosApp`,
+//! which checks the login session and permissions itself. The UI never talks to
+//! the database directly and never supplies prices, tax, cashier or shift.
+
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use pos_core::app::*;
+use pos_core::auth::UserSummary;
+use pos_core::backup::{BackupManifest, RestoreReport, SnapshotInfo};
+use pos_core::domain::analytics::{CategoryPerformance, FinancialSummary, InventoryValuation, TopProduct};
+use pos_core::domain::brand::Brand;
+use pos_core::domain::cart::ParkedCartSummary;
+use pos_core::domain::catalog::{CreateProductParams, ProductDetail, ProductSearchResult, UpdateProductInput};
+use pos_core::domain::category::Category;
+use pos_core::domain::importer::ImportSummary;
+use pos_core::domain::inventory::InventoryBalanceView;
+use pos_core::domain::khata::{AgingReportBucket, KhataStatement, PaymentAllocationResult};
+use pos_core::domain::purchase::{CreatePurchaseInput, PurchaseInvoice};
+use pos_core::domain::refund::CompletedReturn;
+use pos_core::domain::settings::BusinessSettings;
+use pos_core::domain::shift::{CashSession, ZReportData};
+use pos_core::domain::stock_count::{RecordCountItemInput, StockCountSession};
+use pos_core::domain::unit::Unit;
+use pos_core::hardware::ReceiptWidth;
+use pos_core::history::*;
+use pos_core::licensing::LicenseStatus;
+use serde::Serialize;
+use pos_core::app::lan::{LanDevice, LanHub, SharedApp};
+use tauri::{AppHandle, Emitter, Manager, State};
+
 mod printer;
 
-use chrono::Utc;
-use pos_core::auth::{Role, UserRepo, UserSession, UserSummary};
-use pos_core::backup::{CryptoBackupService, SnapshotInfo, SnapshotManager};
-use pos_core::db::connection::{open_encrypted_db, run_migrations};
-use pos_core::db::key::DbKeyManager;
-use pos_core::domain::{
-    AnalyticsRepo, Brand, BrandRepo, BusinessSettings, CashSession, CatalogRepo, Category,
-    CategoryPerformance, CategoryRepo, CompletedReturn, CompletedSale, CreatePartyParams,
-    CreateProductParams, CreatePurchaseInput, FinancialSummary, InventoryValuation, KhataRepo,
-    Party, PartyRepo, PostReturnRequest, PostSaleRequest, ProductSearchResult, PurchaseInvoice,
-    PurchaseRepo, ReturnRepo, SaleRepo, SettingsRepo, ShiftRepo, TopProduct, Unit, UnitRepo,
-};
-use pos_core::hardware::{ReceiptPayload, ReceiptWidth};
-use pos_core::licensing::fingerprint::HardwareFingerprint;
-use pos_core::licensing::license::{LicenseStatus, LicenseStore};
-use pos_core::error::PosError;
-use rusqlite::{params, Connection};
-use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
-use tauri::State;
+/// The app, or the reason it could not open the database (shown on screen).
+/// Shared with the phone link, which runs phones' commands on the same app.
+struct Core(SharedApp);
 
-pub struct AppState {
-    pub db: Mutex<Connection>,
-    pub current_user: Mutex<Option<UserSession>>,
-    pub active_shift: Mutex<Option<CashSession>>,
+type R<T> = std::result::Result<T, String>;
+
+fn with<T>(core: &State<Core>, f: impl FnOnce(&mut PosApp) -> pos_core::error::Result<T>) -> R<T> {
+    let mut guard = core.0.lock().map_err(|_| "Internal error: app state is locked".to_string())?;
+    match guard.as_mut() {
+        Ok(app) => f(app).map_err(|e| e.to_string()),
+        Err(e) => Err(format!("The shop database could not be opened: {}", e)),
+    }
 }
 
 #[derive(Serialize)]
-pub struct SystemStatus {
-    pub pos_core_version: &'static str,
-    pub is_first_run: bool,
-    pub database_encrypted: bool,
-    pub current_user: Option<UserSession>,
-    pub active_shift: Option<CashSession>,
-    pub license_status: String,
-    pub store_name: String,
+struct StartupInfo {
+    ok: bool,
+    error: Option<String>,
+    status: Option<AppStatus>,
 }
 
 #[derive(Serialize)]
-pub struct SaleHistoryRow {
-    pub id: String,
-    pub doc_no: String,
-    pub party_name: String,
-    pub subtotal_paisa: i64,
-    pub discount_paisa: i64,
-    pub tax_paisa: i64,
-    pub grand_total_paisa: i64,
-    pub created_at: String,
+struct LicenseInfo {
+    status: LicenseStatus,
+    machine_id: String,
 }
 
 #[derive(Serialize)]
-pub struct KhataPartySummary {
-    pub id: String,
-    pub name: String,
-    pub name_ur: Option<String>,
-    pub party_type: String,
-    pub phone: Option<String>,
-    pub balance_paisa: i64,
-    pub credit_limit_paisa: i64,
+struct RecalledCart {
+    customer_id: Option<String>,
+    lines: Vec<CheckoutLineInputOut>,
 }
 
-#[derive(Serialize)]
-pub struct LowStockReportRow {
-    pub sku: String,
-    pub name: String,
-    pub on_hand: f64,
-    pub reorder_point: f64,
-    pub unit: String,
-    pub supplier: String,
-    pub suggested_order: f64,
-}
+// ------------------------------------------------------------ status / auth
 
-#[derive(Serialize)]
-pub struct LicenseInfoResponse {
-    pub machine_id: String,
-    pub status: String,
-    pub tier: String,
-    pub days_left: Option<i64>,
-    pub can_post_sales: bool,
-    pub store_name: String,
-}
-
-fn seed_master_data_if_empty(conn: &Connection) -> Result<(), PosError> {
-    let units_count: i64 = conn.query_row("SELECT count(*) FROM units", [], |r| r.get(0))?;
-    if units_count == 0 {
-        let now = Utc::now().to_rfc3339();
-        conn.execute("INSERT OR IGNORE INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-pc', 'PC', 'Piece / عدد', 0, ?1)", [&now])?;
-        conn.execute("INSERT OR IGNORE INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-pkt', 'PKT', 'Packet / پیکٹ', 0, ?1)", [&now])?;
-        conn.execute("INSERT OR IGNORE INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-kg', 'KG', 'Kilogram / کلو', 3, ?1)", [&now])?;
-        conn.execute("INSERT OR IGNORE INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-ltr', 'LTR', 'Litre / لٹر', 3, ?1)", [&now])?;
-        conn.execute("INSERT OR IGNORE INTO units (id, code, name, decimals_allowed, created_at) VALUES ('u-ctn', 'CTN', 'Carton / کاٹن', 0, ?1)", [&now])?;
-
-        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-bev', 'Beverages', 'مشروبات اور چائے', ?1)", [&now])?;
-        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-oil', 'Cooking Oil & Ghee', 'گھی اور تیل', ?1)", [&now])?;
-        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-dry', 'Dairy & Breakfast', 'ڈیری اور ناشتہ', ?1)", [&now])?;
-        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-rice', 'Grains & Pulses', 'اناج اور دالیں', ?1)", [&now])?;
-        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-soap', 'Personal Care', 'صابن اور شیمپو', ?1)", [&now])?;
-        conn.execute("INSERT OR IGNORE INTO categories (id, name, name_ur, created_at) VALUES ('cat-spc', 'Spices & Recipe Mix', 'مصالحہ جات', ?1)", [&now])?;
-
-        conn.execute("INSERT OR IGNORE INTO parties (id, name, name_ur, party_type, phone, credit_limit_paisa, created_at) VALUES ('cust-walkin', 'Walk-in Customer', 'عام گاہک', 'customer', '03000000000', 0, ?1)", [&now])?;
-        conn.execute("INSERT OR IGNORE INTO price_lists (id, name, created_at) VALUES ('retail', 'Retail Price List', ?1)", [&now])?;
-    }
-    Ok(())
-}
-
-fn seed_demo_catalog(conn: &Connection) -> Result<(), PosError> {
-    let now = Utc::now().to_rfc3339();
-    conn.execute("INSERT OR IGNORE INTO price_lists (id, name, created_at) VALUES ('retail', 'Retail Price List', ?1)", [&now])?;
-
-    let seed_products = [
-        ("prod-01", "var-001", "Tapal Danedar Tea 450g", "ٹپال دانے دار چائے ۴۵۰ گرام", "BEV-TEA-450", "8961014001018", "u-pkt", "cat-bev", 62000, 45000),
-        ("prod-02", "var-002", "Dalda Cooking Oil 1 Litre Pouch", "ڈالڈا کوکنگ آئل ۱ لٹر پاؤچ", "GRO-OIL-1L", "8961014002022", "u-pc", "cat-oil", 54000, 35000),
-        ("prod-03", "var-003", "Olper's Milk 1000ml", "اولپرز دودھ ۱۰۰۰ ملی لٹر", "DRY-MLK-1L", "8961014003036", "u-pc", "cat-dry", 29000, 80000),
-        ("prod-04", "var-004", "National Basmati Rice 5kg", "نیشنل باسمتی چاول ۵ کلو", "GRN-RCE-5K", "8961014004043", "u-pc", "cat-rice", 175000, 25000),
-        ("prod-05", "var-005", "Lux Beauty Soap 150g", "لکس بیوٹی صابن ۱۵۰ گرام", "SOAP-LUX-150", "8961014005050", "u-pc", "cat-soap", 15000, 100000),
-        ("prod-06", "var-006", "Shan Bombay Biryani Masala 50g", "شان بمبئی بریانی مصالحہ ۵۰ گرام", "SPC-BRY-50", "8961014006067", "u-pc", "cat-spc", 11000, 60000),
-    ];
-
-    for (pid, vid, name, name_ur, sku, barcode, unit_id, cat_id, price, stock) in seed_products {
-        conn.execute(
-            "INSERT OR REPLACE INTO products (id, sku, name, name_ur, category_id, base_unit_id, track_mode, active, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'batch', 1, ?7, ?7)",
-            params![pid, sku, name, name_ur, cat_id, unit_id, now],
-        )?;
-        conn.execute(
-            "INSERT OR REPLACE INTO product_variants (id, product_id, sku, is_default, attributes_json, created_at) VALUES (?1, ?2, ?3, 1, '{}', ?4)",
-            params![vid, pid, sku, now],
-        )?;
-        conn.execute(
-            "INSERT OR REPLACE INTO variant_units (id, variant_id, unit_id, factor_to_base, barcode, is_sale_unit, is_purchase_unit, created_at) VALUES (?1, ?2, ?3, 1000, ?4, 1, 1, ?5)",
-            params![format!("vu-{}", vid), vid, unit_id, barcode, now],
-        )?;
-        conn.execute(
-            "INSERT OR REPLACE INTO barcodes (id, variant_id, value, kind, created_at) VALUES (?1, ?2, ?3, 'manufacturer', ?4)",
-            params![format!("bc-{}", vid), vid, barcode, now],
-        )?;
-        conn.execute(
-            "INSERT OR REPLACE INTO prices (id, price_list_id, variant_id, unit_id, price_paisa, valid_from) VALUES (?1, 'retail', ?2, ?3, ?4, ?5)",
-            params![format!("prc-{}", vid), vid, unit_id, price, now],
-        )?;
-        conn.execute(
-            "INSERT OR REPLACE INTO inventory_balances (variant_id, on_hand_milli, avg_cost_paisa, last_rebuilt_at) VALUES (?1, ?2, ?3, ?4)",
-            params![vid, stock, (price * 85) / 100, now],
-        )?;
-    }
-
-    conn.execute(
-        "INSERT OR REPLACE INTO parties (id, name, name_ur, party_type, phone, credit_limit_paisa, created_at) VALUES ('cust-001', 'Haji Abdul Rehman (Kiryana)', 'حاجی عبدالرحمان کریانہ', 'customer', '03001234567', 10000000, ?1)",
-        [&now],
-    )?;
-
-    Ok(())
-}
-
-fn clear_to_fresh_account(conn: &Connection) -> Result<(), PosError> {
-    conn.execute("DELETE FROM sale_tenders", [])?;
-    conn.execute("DELETE FROM sale_lines", [])?;
-    conn.execute("DELETE FROM sales", [])?;
-    conn.execute("DELETE FROM return_lines", [])?;
-    conn.execute("DELETE FROM returns", [])?;
-    conn.execute("DELETE FROM cash_sessions", [])?;
-    conn.execute("DELETE FROM party_ledger", [])?;
-    conn.execute("DELETE FROM inventory_ledger", [])?;
-    conn.execute("DELETE FROM inventory_balances", [])?;
-    conn.execute("DELETE FROM sync_outbox", [])?;
-    conn.execute("DELETE FROM prices", [])?;
-    conn.execute("DELETE FROM barcodes", [])?;
-    conn.execute("DELETE FROM variant_units", [])?;
-    conn.execute("DELETE FROM product_variants", [])?;
-    conn.execute("DELETE FROM products", [])?;
-    conn.execute("DELETE FROM parties WHERE id != 'cust-walkin'", [])?;
-    Ok(())
-}
-
-fn open_app_database() -> Result<Connection, PosError> {
-    let key_dir = DbKeyManager::default_key_dir();
-    let key_file = key_dir.join("master.key");
-    let (key, _is_new) = DbKeyManager::load_or_create_key(&key_file)?;
-    let db_path = key_dir.join("nextpos.db");
-    let mut conn = open_encrypted_db(&db_path, &key)?;
-    run_migrations(&mut conn)?;
-    seed_master_data_if_empty(&conn)?;
-    Ok(conn)
-}
-
-// ---------------- TAURI IPC COMMANDS ----------------
-
-#[tauri::command]
-fn get_system_status(state: State<'_, AppState>) -> Result<SystemStatus, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let is_first_run = UserRepo::needs_first_owner(&conn).map_err(|e| e.to_string())?;
-    let cur_user = state.current_user.lock().map_err(|e| e.to_string())?.clone();
-    let cur_shift = state.active_shift.lock().map_err(|e| e.to_string())?.clone();
-
-    let settings = SettingsRepo::get(&conn).ok();
-    let store_name = settings.map(|s| s.name).unwrap_or_else(|| "Next POS (کاروبار پی او ایس)".into());
-
-    Ok(SystemStatus {
-        pos_core_version: pos_core::pos_core_version(),
-        is_first_run,
-        database_encrypted: true,
-        current_user: cur_user,
-        active_shift: cur_shift,
-        license_status: "Active (Offline Permanent)".into(),
-        store_name,
-    })
-}
-
-#[derive(Deserialize)]
-pub struct FirstOwnerPayload {
-    pub username: String,
-    pub password: String,
-    pub pin: Option<String>,
-    pub shop_name: Option<String>,
-    pub shop_name_ur: Option<String>,
-    pub phone: Option<String>,
-    pub address: Option<String>,
-    pub account_type: Option<String>, // "demo" or "fresh"
-}
-
-#[tauri::command]
-fn setup_first_owner(
-    state: State<'_, AppState>,
-    payload: FirstOwnerPayload,
-) -> Result<UserSummary, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let user = UserRepo::create_user(
-        &conn,
-        &payload.username,
-        &payload.password,
-        payload.pin.as_deref(),
-        Role::Owner,
-        None,
-    ).map_err(|e| e.to_string())?;
-
-    let now = Utc::now();
-    let shop_name = payload.shop_name.unwrap_or_else(|| "Next POS Store".into());
-    let settings = BusinessSettings {
-        id: "default".into(),
-        name: shop_name,
-        name_ur: payload.shop_name_ur,
-        address: payload.address,
-        phone: payload.phone,
-        ntn: None,
-        strn: None,
-        currency: "PKR".into(),
-        time_zone: "Asia/Karachi".into(),
-        tax_mode: "inclusive".into(),
-        negative_stock_policy: "Block".into(),
-        enabled_packs: vec!["grocery".into()],
-        fbr_enabled: false,
-        created_at: now,
-        updated_at: now,
+#[tauri::command(rename_all = "snake_case")]
+fn app_status(core: State<Core>) -> StartupInfo {
+    let guard = match core.0.lock() {
+        Ok(g) => g,
+        Err(_) => return StartupInfo { ok: false, error: Some("Internal error".into()), status: None },
     };
-    let _ = SettingsRepo::save_or_update(&conn, &settings);
-
-    let is_demo = payload.account_type.as_deref() == Some("demo");
-    if is_demo {
-        let _ = seed_demo_catalog(&conn);
-    } else {
-        let _ = clear_to_fresh_account(&conn);
-    }
-
-    // Auto login first owner
-    let sess = UserRepo::login_password(&conn, &payload.username, &payload.password, &now).map_err(|e| e.to_string())?;
-    let mut cur = state.current_user.lock().map_err(|e| e.to_string())?;
-    *cur = Some(sess);
-
-    Ok(user)
-}
-
-#[tauri::command]
-fn reset_store_account(
-    state: State<'_, AppState>,
-    account_type: String, // "demo" or "fresh"
-) -> Result<(), String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    if account_type == "demo" {
-        seed_demo_catalog(&conn).map_err(|e| e.to_string())?;
-    } else {
-        clear_to_fresh_account(&conn).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn login_with_password(
-    state: State<'_, AppState>,
-    username: String,
-    password: String,
-) -> Result<UserSession, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let now = Utc::now();
-    let sess = UserRepo::login_password(&conn, &username, &password, &now).map_err(|e| e.to_string())?;
-    let mut cur = state.current_user.lock().map_err(|e| e.to_string())?;
-    *cur = Some(sess.clone());
-
-    // Restore active shift for user if any
-    let shift = ShiftRepo::get_active_session(&conn, &sess.user_id).map_err(|e| e.to_string())?;
-    let mut act_shift = state.active_shift.lock().map_err(|e| e.to_string())?;
-    *act_shift = shift;
-
-    Ok(sess)
-}
-
-#[tauri::command]
-fn login_with_pin(
-    state: State<'_, AppState>,
-    user_id: String,
-    pin: String,
-) -> Result<UserSession, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let now = Utc::now();
-    let sess = UserRepo::login_pin(&conn, &user_id, &pin, &now).map_err(|e| e.to_string())?;
-    let mut cur = state.current_user.lock().map_err(|e| e.to_string())?;
-    *cur = Some(sess.clone());
-
-    let shift = ShiftRepo::get_active_session(&conn, &sess.user_id).map_err(|e| e.to_string())?;
-    let mut act_shift = state.active_shift.lock().map_err(|e| e.to_string())?;
-    *act_shift = shift;
-
-    Ok(sess)
-}
-
-#[tauri::command]
-fn list_active_users(state: State<'_, AppState>) -> Result<Vec<UserSummary>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    UserRepo::list_users(&conn).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn logout_user(state: State<'_, AppState>) -> Result<(), String> {
-    let mut cur = state.current_user.lock().map_err(|e| e.to_string())?;
-    *cur = None;
-    let mut act_shift = state.active_shift.lock().map_err(|e| e.to_string())?;
-    *act_shift = None;
-    Ok(())
-}
-
-#[tauri::command]
-fn search_products(
-    state: State<'_, AppState>,
-    query: String,
-) -> Result<Vec<ProductSearchResult>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    if query.trim().is_empty() {
-        CatalogRepo::list_products(&conn, 50, 0).map_err(|e| e.to_string())
-    } else {
-        CatalogRepo::search(&conn, &query, 50).map_err(|e| e.to_string())
+    match guard.as_ref() {
+        Ok(app) => match app.status() {
+            Ok(s) => StartupInfo { ok: true, error: None, status: Some(s) },
+            Err(e) => StartupInfo { ok: false, error: Some(e.to_string()), status: None },
+        },
+        Err(e) => StartupInfo { ok: false, error: Some(e.clone()), status: None },
     }
 }
 
-#[tauri::command]
-fn list_products_catalog(
-    state: State<'_, AppState>,
-    limit: Option<usize>,
-    offset: Option<usize>,
-) -> Result<Vec<ProductSearchResult>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    CatalogRepo::list_products(&conn, limit.unwrap_or(100), offset.unwrap_or(0)).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn setup_first_run(core: State<Core>, store: StoreSetupInput, owner: OwnerSetupInput) -> R<SetupResult> {
+    with(&core, |a| a.setup_first_run(store, owner))
 }
 
-#[tauri::command]
-fn create_product(
-    state: State<'_, AppState>,
-    params: CreateProductParams,
-) -> Result<ProductSearchResult, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    CatalogRepo::create_product(&conn, params).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn login_password(core: State<Core>, username: String, password: String) -> R<SessionInfo> {
+    with(&core, |a| a.login_password(&username, &password))
 }
 
-#[tauri::command]
-fn list_categories(state: State<'_, AppState>) -> Result<Vec<Category>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    CategoryRepo::list(&conn).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn login_pin(core: State<Core>, user_id: String, pin: String) -> R<SessionInfo> {
+    with(&core, |a| a.login_pin(&user_id, &pin))
 }
 
-#[tauri::command]
-fn create_category(
-    state: State<'_, AppState>,
-    name: String,
-    name_ur: Option<String>,
-    parent_id: Option<String>,
-) -> Result<Category, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    CategoryRepo::create(&conn, &name, name_ur.as_deref(), parent_id.as_deref()).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn logout(core: State<Core>) -> R<()> {
+    with(&core, |a| a.logout())
 }
 
-#[tauri::command]
-fn list_brands(state: State<'_, AppState>) -> Result<Vec<Brand>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    BrandRepo::list(&conn).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn reveal_recovery_phrase(core: State<Core>, password: String) -> R<String> {
+    with(&core, |a| a.reveal_recovery_phrase(&password))
 }
 
-#[tauri::command]
-fn create_brand(
-    state: State<'_, AppState>,
-    name: String,
-    name_ur: Option<String>,
-) -> Result<Brand, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    BrandRepo::create(&conn, &name, name_ur.as_deref()).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn list_users(core: State<Core>) -> R<Vec<UserSummary>> {
+    with(&core, |a| a.list_users())
 }
 
-#[tauri::command]
-fn list_units(state: State<'_, AppState>) -> Result<Vec<Unit>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    UnitRepo::list(&conn).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn create_user(core: State<Core>, input: NewUserInput) -> R<UserSummary> {
+    with(&core, |a| a.create_user(input))
 }
 
-#[tauri::command]
-fn create_unit(
-    state: State<'_, AppState>,
-    code: String,
-    name: String,
-    decimals_allowed: u8,
-) -> Result<Unit, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    UnitRepo::create(&conn, &code, &name, decimals_allowed).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn set_pin(core: State<Core>, user_id: Option<String>, new_pin: String) -> R<()> {
+    with(&core, |a| a.set_pin(user_id, &new_pin))
 }
 
-#[tauri::command]
-fn create_party(
-    state: State<'_, AppState>,
-    params: CreatePartyParams,
-) -> Result<Party, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    PartyRepo::create_party(&conn, params).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn set_user_active(core: State<Core>, user_id: String, active: bool) -> R<()> {
+    with(&core, |a| a.set_user_active(&user_id, active))
 }
 
-#[tauri::command]
-fn list_vendors(state: State<'_, AppState>) -> Result<Vec<Party>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    PartyRepo::list_vendors(&conn).map_err(|e| e.to_string())
+// ------------------------------------------------------------ settings
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_settings(core: State<Core>) -> R<BusinessSettings> {
+    with(&core, |a| a.get_settings())
 }
 
-#[tauri::command]
-fn create_purchase_invoice(
-    state: State<'_, AppState>,
-    input: CreatePurchaseInput,
-) -> Result<PurchaseInvoice, String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    PurchaseRepo::post_purchase(&mut conn, input).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn save_settings(core: State<Core>, settings: BusinessSettings) -> R<()> {
+    with(&core, |a| a.save_settings(settings))
 }
 
-#[tauri::command]
-fn list_purchases(
-    state: State<'_, AppState>,
-    limit: Option<usize>,
-) -> Result<Vec<PurchaseInvoice>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    PurchaseRepo::list_purchases(&conn, limit.unwrap_or(50)).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn diagnostics(core: State<Core>) -> R<DiagnosticsInfo> {
+    with(&core, |a| a.diagnostics())
 }
 
-#[tauri::command]
-fn post_sale(
-    state: State<'_, AppState>,
-    mut request: PostSaleRequest,
-) -> Result<CompletedSale, String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    
-    // Auto attach current shift if open
-    let cur_shift = state.active_shift.lock().map_err(|e| e.to_string())?.clone();
-    if request.cash_session_id.is_none() {
-        if let Some(s) = cur_shift {
-            request.cash_session_id = Some(s.id);
-        }
-    }
+// ------------------------------------------------------------ catalog
 
-    SaleRepo::post_sale(&mut conn, request).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn search_products(core: State<Core>, query: String, limit: Option<usize>) -> R<Vec<ProductRow>> {
+    with(&core, |a| a.search_products(&query, limit.unwrap_or(50)))
 }
 
-#[tauri::command]
-fn get_recent_sales(
-    state: State<'_, AppState>,
-    limit: i64,
-) -> Result<Vec<SaleHistoryRow>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare(
-        "SELECT s.id, s.doc_no, coalesce(p.name, 'Walk-in Customer') as party_name,
-                s.subtotal_paisa, s.discount_paisa, s.tax_paisa, s.total_paisa, s.created_at
-         FROM sales s
-         LEFT JOIN parties p ON p.id = s.party_id
-         ORDER BY s.created_at DESC LIMIT ?1"
-    ).map_err(|e| e.to_string())?;
-
-    let rows = stmt.query_map(params![limit], |r| {
-        Ok(SaleHistoryRow {
-            id: r.get(0)?,
-            doc_no: r.get(1)?,
-            party_name: r.get(2)?,
-            subtotal_paisa: r.get(3)?,
-            discount_paisa: r.get(4)?,
-            tax_paisa: r.get(5)?,
-            grand_total_paisa: r.get(6)?,
-            created_at: r.get(7)?,
-        })
-    }).map_err(|e| e.to_string())?
-    .collect::<std::result::Result<Vec<_>, _>>()
-    .map_err(|e| e.to_string())?;
-
-    Ok(rows)
+#[tauri::command(rename_all = "snake_case")]
+fn search_sellable(core: State<Core>, query: String, limit: Option<usize>) -> R<Vec<ProductRow>> {
+    with(&core, |a| a.search_sellable(&query, limit.unwrap_or(50)))
 }
 
-#[tauri::command]
-fn post_return(
-    state: State<'_, AppState>,
-    request: PostReturnRequest,
-) -> Result<CompletedReturn, String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    ReturnRepo::post_return(&mut conn, request).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn generate_barcode(core: State<Core>) -> R<String> {
+    with(&core, |a| a.generate_barcode())
 }
 
-#[tauri::command]
-fn open_shift(
-    state: State<'_, AppState>,
-    opening_float_paisa: i64,
-) -> Result<CashSession, String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let cur_user = state.current_user.lock().map_err(|e| e.to_string())?.clone();
-    let user_id = cur_user.map(|u| u.user_id).unwrap_or_else(|| "usr-default".into());
-
-    if let Ok(Some(existing)) = ShiftRepo::get_active_session(&conn, &user_id) {
-        let mut act = state.active_shift.lock().map_err(|e| e.to_string())?;
-        *act = Some(existing.clone());
-        return Ok(existing);
-    }
-
-    let session = ShiftRepo::start_shift(&mut conn, &user_id, opening_float_paisa).map_err(|e| e.to_string())?;
-    let mut act = state.active_shift.lock().map_err(|e| e.to_string())?;
-    *act = Some(session.clone());
-    Ok(session)
+#[tauri::command(rename_all = "snake_case")]
+fn assign_barcode(core: State<Core>, variant_id: String) -> R<String> {
+    with(&core, |a| a.assign_barcode(&variant_id))
 }
 
-#[tauri::command]
-fn get_active_shift(
-    state: State<'_, AppState>,
-) -> Result<Option<CashSession>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let cur_user = state.current_user.lock().map_err(|e| e.to_string())?.clone();
-    let user_id = cur_user.map(|u| u.user_id).unwrap_or_else(|| "usr-default".into());
-    let session = ShiftRepo::get_active_session(&conn, &user_id).map_err(|e| e.to_string())?;
-    let mut act = state.active_shift.lock().map_err(|e| e.to_string())?;
-    *act = session.clone();
-    Ok(session)
-}
-
-#[tauri::command]
-fn record_cash_drop(
-    state: State<'_, AppState>,
-    amount_paisa: i64,
-    reason: String,
-) -> Result<(), String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let cur_shift = state.active_shift.lock().map_err(|e| e.to_string())?.clone();
-    let shift_id = if let Some(s) = cur_shift {
-        s.id
-    } else {
-        let cur_user = state.current_user.lock().map_err(|e| e.to_string())?.clone();
-        let user_id = cur_user.map(|u| u.user_id).unwrap_or_else(|| "usr-default".into());
-        ShiftRepo::get_active_session(&conn, &user_id)
-            .map_err(|e| e.to_string())?
-            .map(|s| s.id)
-            .ok_or_else(|| "No active shift to record cash drop".to_string())?
+/// Sends barcode labels to a thermal label printer (TSPL: TSC, Xprinter, Rongta…).
+#[tauri::command(rename_all = "snake_case")]
+fn print_labels(core: State<Core>, variant_id: String, copies: usize, size: Option<String>, printer_name: Option<String>) -> R<()> {
+    let size = match size.as_deref() {
+        Some("50x30") => pos_core::hardware::LabelSize::Size50x30,
+        _ => pos_core::hardware::LabelSize::Size38x25,
     };
-    ShiftRepo::record_cash_drop(&mut conn, &shift_id, amount_paisa, &reason).map_err(|e| e.to_string())
+    let payload = with(&core, |a| a.label_payload(&variant_id, copies, size))?;
+    let bytes = pos_core::hardware::LabelGenerator::generate_tspl(&payload);
+    printer::print_bytes(printer_name.as_deref(), "Barcode labels", &bytes).map_err(|e| format!("Label printing failed: {}", e))
 }
 
-#[tauri::command]
-fn close_shift(
-    state: State<'_, AppState>,
-    closing_counted_cash_paisa: i64,
-) -> Result<pos_core::domain::ZReportData, String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let cur_user = state.current_user.lock().map_err(|e| e.to_string())?.clone();
-    let user_id = cur_user.map(|u| u.user_id).unwrap_or_else(|| "usr-default".into());
-
-    let mut act = state.active_shift.lock().map_err(|e| e.to_string())?;
-    let shift_id = if let Some(ref s) = *act {
-        s.id.clone()
-    } else {
-        ShiftRepo::get_active_session(&conn, &user_id)
-            .map_err(|e| e.to_string())?
-            .map(|s| s.id)
-            .ok_or_else(|| "No active shift to close".to_string())?
-    };
-
-    let zreport = ShiftRepo::close_shift(&mut conn, &shift_id, closing_counted_cash_paisa).map_err(|e| e.to_string())?;
-    *act = None;
-    Ok(zreport)
+#[tauri::command(rename_all = "snake_case")]
+fn scan_code(core: State<Core>, code: String) -> R<Option<ScanResult>> {
+    with(&core, |a| a.scan(&code))
 }
 
-#[tauri::command]
-fn list_khata_parties(
-    state: State<'_, AppState>,
-    party_type: String,
-) -> Result<Vec<KhataPartySummary>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare(
-        "SELECT p.id, p.name, p.name_ur, p.party_type, p.phone,
-                coalesce(b.balance_paisa, 0) as balance_paisa, p.credit_limit_paisa
-         FROM parties p
-         LEFT JOIN khata_balances b ON b.party_id = p.id
-         WHERE p.party_type = ?1 ORDER BY p.name ASC"
-    ).map_err(|e| e.to_string())?;
-
-    let rows = stmt.query_map(params![party_type], |r| {
-        Ok(KhataPartySummary {
-            id: r.get(0)?,
-            name: r.get(1)?,
-            name_ur: r.get(2)?,
-            party_type: r.get(3)?,
-            phone: r.get(4)?,
-            balance_paisa: r.get(5)?,
-            credit_limit_paisa: r.get(6)?,
-        })
-    }).map_err(|e| e.to_string())?
-    .collect::<std::result::Result<Vec<_>, _>>()
-    .map_err(|e| e.to_string())?;
-
-    Ok(rows)
+#[tauri::command(rename_all = "snake_case")]
+fn create_product(core: State<Core>, params: CreateProductParams, is_service: Option<bool>) -> R<ProductSearchResult> {
+    with(&core, |a| a.create_item(params, is_service.unwrap_or(false)))
 }
 
-#[tauri::command]
-fn get_khata_statement(
-    state: State<'_, AppState>,
-    party_id: String,
-) -> Result<pos_core::domain::KhataStatement, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    KhataRepo::get_statement(&conn, &party_id, "1970-01-01T00:00:00Z", "2099-12-31T23:59:59Z").map_err(|e| e.to_string())
+// ------------------------------------------------------------ returns to vendors, claims, reports
+
+#[tauri::command(rename_all = "snake_case")]
+fn post_purchase_return(core: State<Core>, input: pos_core::app::ops::PurchaseReturnInput) -> R<pos_core::app::ops::PurchaseReturnDoc> {
+    with(&core, |a| a.post_purchase_return(input))
 }
 
-#[tauri::command]
-fn get_reports_summary(
-    state: State<'_, AppState>,
-    start_date: Option<String>,
-    end_date: Option<String>,
-) -> Result<FinancialSummary, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let start = start_date.unwrap_or_else(|| "1970-01-01T00:00:00Z".into());
-    let end = end_date.unwrap_or_else(|| "2099-12-31T23:59:59Z".into());
-    AnalyticsRepo::get_financial_summary(&conn, &start, &end).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn list_purchase_returns(core: State<Core>, limit: Option<usize>) -> R<Vec<pos_core::app::ops::PurchaseReturnDoc>> {
+    with(&core, |a| a.list_purchase_returns(limit.unwrap_or(100)))
 }
 
-#[tauri::command]
-fn get_category_performance(
-    state: State<'_, AppState>,
-    start_date: Option<String>,
-    end_date: Option<String>,
-) -> Result<Vec<CategoryPerformance>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let start = start_date.unwrap_or_else(|| "1970-01-01T00:00:00Z".into());
-    let end = end_date.unwrap_or_else(|| "2099-12-31T23:59:59Z".into());
-    AnalyticsRepo::get_category_performance(&conn, &start, &end).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn create_claim(core: State<Core>, input: pos_core::app::ops::ClaimInput) -> R<pos_core::app::ops::Claim> {
+    with(&core, |a| a.create_claim(input))
 }
 
-#[tauri::command]
-fn get_top_products(
-    state: State<'_, AppState>,
-    start_date: Option<String>,
-    end_date: Option<String>,
-    limit: Option<usize>,
-) -> Result<Vec<TopProduct>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let start = start_date.unwrap_or_else(|| "1970-01-01T00:00:00Z".into());
-    let end = end_date.unwrap_or_else(|| "2099-12-31T23:59:59Z".into());
-    AnalyticsRepo::get_top_products(&conn, &start, &end, limit.unwrap_or(10)).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn update_claim(core: State<Core>, id: String, status: String, notes: Option<String>, credit_paisa: Option<i64>) -> R<pos_core::app::ops::Claim> {
+    with(&core, |a| a.update_claim(&id, &status, notes, credit_paisa))
 }
 
-#[tauri::command]
-fn get_inventory_valuation(
-    state: State<'_, AppState>,
-) -> Result<InventoryValuation, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    AnalyticsRepo::get_inventory_valuation(&conn).map_err(|e| e.to_string())
+#[tauri::command(rename_all = "snake_case")]
+fn list_claims(core: State<Core>, status: Option<String>) -> R<Vec<pos_core::app::ops::Claim>> {
+    with(&core, |a| a.list_claims(status))
 }
 
-#[tauri::command]
-fn get_low_stock_report(
-    state: State<'_, AppState>,
-) -> Result<Vec<LowStockReportRow>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare(
-        "SELECT pv.sku, p.name,
-                COALESCE(ib.on_hand_milli, 0) as on_hand_milli,
-                COALESCE(p.reorder_point_milli, 10000) as reorder_milli,
-                COALESCE(u.code, 'PC') as unit_code,
-                COALESCE(pt.name, 'General Supplier') as supplier
-         FROM product_variants pv
-         JOIN products p ON pv.product_id = p.id
-         LEFT JOIN inventory_balances ib ON pv.id = ib.variant_id
-         LEFT JOIN units u ON p.unit_id = u.id
-         LEFT JOIN parties pt ON pt.party_type = 'vendor'
-         WHERE COALESCE(ib.on_hand_milli, 0) <= COALESCE(p.reorder_point_milli, 10000)
-         GROUP BY pv.id
-         ORDER BY on_hand_milli ASC
-         LIMIT 50"
-    ).map_err(|e| e.to_string())?;
+#[tauri::command(rename_all = "snake_case")]
+fn report(core: State<Core>, kind: String, from: String, to: String, offset_min: Option<i64>) -> R<pos_core::app::reports::ReportTable> {
+    with(&core, |a| a.report(&kind, &from, &to, offset_min))
+}
 
-    let rows = stmt.query_map([], |r| {
-        let on_hand_milli: i64 = r.get(2)?;
-        let reorder_milli: i64 = r.get(3)?;
-        let on_hand = on_hand_milli as f64 / 1000.0;
-        let reorder_point = reorder_milli as f64 / 1000.0;
-        let suggested = (reorder_point * 2.0 - on_hand).max(1.0);
-        Ok(LowStockReportRow {
-            sku: r.get(0)?,
-            name: r.get(1)?,
-            on_hand,
-            reorder_point,
-            unit: r.get(4)?,
-            supplier: r.get(5)?,
-            suggested_order: suggested.round(),
-        })
-    }).map_err(|e| e.to_string())?;
+#[tauri::command(rename_all = "snake_case")]
+fn import_products_file(core: State<Core>, file_name: String, data_base64: String) -> R<pos_core::domain::importer::ImportSummary> {
+    with(&core, |a| a.import_products_file(&file_name, &data_base64))
+}
 
-    let mut result = Vec::new();
-    for row in rows {
-        if let Ok(item) = row {
-            result.push(item);
-        }
+/// Folder for exported reports and product lists: Documents\Next POS Exports.
+fn exports_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let base = app.path().document_dir().or_else(|_| app.path().home_dir()).map_err(|e| e.to_string())?;
+    let dir = base.join("Next POS Exports");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Could not make the exports folder: {e}"))?;
+    Ok(dir)
+}
+
+/// Save an exported file (PDF / Excel / CSV). Returns where it was saved.
+#[tauri::command(rename_all = "snake_case")]
+fn save_export(app: AppHandle, core: State<Core>, file_name: String, data_base64: String) -> R<String> {
+    use base64::Engine;
+    with(&core, |a| a.status().map(|_| ()))?;
+    let clean: String = file_name.chars().filter(|c| c.is_ascii_alphanumeric() || " _-().".contains(*c)).collect();
+    let clean = clean.trim().trim_start_matches('.').to_string();
+    let ext = clean.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    if clean.is_empty() || !["pdf", "xlsx", "csv"].contains(&ext.as_str()) {
+        return Err("Only PDF, Excel and CSV files can be saved".into());
     }
-    Ok(result)
-}
-
-#[tauri::command]
-fn create_live_snapshot(
-    state: State<'_, AppState>,
-) -> Result<SnapshotInfo, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let snap_dir = DbKeyManager::default_key_dir().join("snapshots");
-    let info = SnapshotManager::create_snapshot(&conn, &snap_dir).map_err(|e| e.to_string())?;
-    let _ = SnapshotManager::rotate_snapshots(&snap_dir, 24);
-    Ok(info)
-}
-
-#[tauri::command]
-fn list_database_snapshots() -> Result<Vec<SnapshotInfo>, String> {
-    let snap_dir = DbKeyManager::default_key_dir().join("snapshots");
-    if !snap_dir.exists() {
-        return Ok(Vec::new());
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data_base64.as_bytes()).map_err(|_| "The file could not be read".to_string())?;
+    if bytes.len() > 50 * 1024 * 1024 {
+        return Err("The file is too large".into());
     }
-    let mut snapshots = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&snap_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() && path.extension().map(|e| e == "kdb" || e == "db").unwrap_or(false) {
-                if let Ok(meta) = entry.metadata() {
-                    let created = meta.created().or_else(|_| meta.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                    let created_str = chrono::DateTime::<Utc>::from(created).to_rfc3339();
-                    let filename = entry.file_name().to_string_lossy().to_string();
-                    let path_str = path.to_string_lossy().to_string();
-                    snapshots.push(SnapshotInfo {
-                        path: path_str,
-                        filename,
-                        file_size_bytes: meta.len(),
-                        created_at: created_str,
-                        is_valid: meta.len() > 0,
-                    });
-                }
-            }
-        }
+    let dir = exports_dir(&app)?;
+    let stem = clean[..clean.len() - ext.len() - 1].to_string();
+    let mut path = dir.join(&clean);
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{stem} ({n}).{ext}"));
+        n += 1;
     }
-    snapshots.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    Ok(snapshots)
+    std::fs::write(&path, bytes).map_err(|e| format!("Could not save the file: {e}"))?;
+    Ok(path.display().to_string())
 }
 
-#[tauri::command]
-fn get_machine_identifier() -> Result<String, String> {
-    Ok(HardwareFingerprint::get_machine_id())
+/// Open the exports folder in Windows Explorer.
+#[tauri::command(rename_all = "snake_case")]
+fn open_exports_folder(app: AppHandle) -> R<()> {
+    let dir = exports_dir(&app)?;
+    #[cfg(target_os = "windows")]
+    let r = std::process::Command::new("explorer").arg(&dir).spawn();
+    #[cfg(not(target_os = "windows"))]
+    let r = std::process::Command::new("xdg-open").arg(&dir).spawn();
+    r.map(|_| ()).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn get_license_info(state: State<'_, AppState>) -> Result<LicenseInfoResponse, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let machine_id = HardwareFingerprint::get_machine_id();
-    let now = Utc::now();
-    let status = LicenseStore::current_status(&conn, &machine_id, &now, None).map_err(|e| e.to_string())?;
-
-    let store_name = SettingsRepo::get(&conn).map(|s| s.name).unwrap_or_else(|_| "Next POS Retail Store".into());
-
-    let (status_str, tier_str, days_left) = match &status {
-        LicenseStatus::Active { tier, days_left, .. } => {
-            ("active".into(), format!("{:?}", tier), *days_left)
-        }
-        LicenseStatus::GracePeriod { tier, grace_days_left, .. } => {
-            ("grace_period".into(), format!("{:?}", tier), Some(*grace_days_left))
-        }
-        LicenseStatus::TrialActive { days_left, .. } => {
-            ("trial".into(), "Trial".into(), Some(*days_left))
-        }
-        LicenseStatus::Expired => ("expired".into(), "None".into(), Some(0)),
-        LicenseStatus::MachineMismatch { .. } => ("machine_mismatch".into(), "None".into(), None),
-        LicenseStatus::InvalidSignature => ("invalid_signature".into(), "None".into(), None),
-        LicenseStatus::MalformedToken => ("malformed_token".into(), "None".into(), None),
-        LicenseStatus::ClockTampered => ("clock_tampered".into(), "None".into(), None),
-    };
-
-    Ok(LicenseInfoResponse {
-        machine_id,
-        status: status_str,
-        tier: tier_str,
-        days_left,
-        can_post_sales: status.can_post_sales(),
-        store_name,
-    })
+#[tauri::command(rename_all = "snake_case")]
+fn update_price(core: State<Core>, variant_id: String, retail_paisa: i64, wholesale_paisa: Option<i64>) -> R<()> {
+    with(&core, |a| a.update_price(&variant_id, retail_paisa, wholesale_paisa))
 }
 
-#[tauri::command]
-fn activate_license_token(state: State<'_, AppState>, token: String) -> Result<LicenseInfoResponse, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let machine_id = HardwareFingerprint::get_machine_id();
-    let now = Utc::now();
-    LicenseStore::install_token(&conn, &token, &machine_id, &now, None).map_err(|e| e.to_string())?;
-    drop(conn);
-    get_license_info(state)
+#[tauri::command(rename_all = "snake_case")]
+fn list_units(core: State<Core>) -> R<Vec<Unit>> {
+    with(&core, |a| a.list_units())
 }
 
-#[tauri::command]
-fn export_backup(
-    state: State<'_, AppState>,
-    password: String,
-    destination_file: Option<String>,
-) -> Result<String, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let dest_path = if let Some(dest) = destination_file.filter(|s| !s.trim().is_empty()) {
-        std::path::PathBuf::from(dest)
-    } else {
-        let backup_dir = DbKeyManager::default_key_dir().join("backups");
-        let _ = std::fs::create_dir_all(&backup_dir);
-        let time_str = Utc::now().format("%Y%m%d_%H%M%S").to_string();
-        backup_dir.join(format!("backup_{}.kpos", time_str))
-    };
+#[tauri::command(rename_all = "snake_case")]
+fn create_unit(core: State<Core>, code: String, name: String, decimals: u8) -> R<Unit> {
+    with(&core, |a| a.create_unit(&code, &name, decimals))
+}
 
-    if let Some(parent) = dest_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+#[tauri::command(rename_all = "snake_case")]
+fn list_categories(core: State<Core>) -> R<Vec<Category>> {
+    with(&core, |a| a.list_categories())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_category(core: State<Core>, name: String, name_ur: Option<String>, parent_id: Option<String>) -> R<Category> {
+    with(&core, |a| a.create_category(&name, name_ur, parent_id))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn list_brands(core: State<Core>) -> R<Vec<Brand>> {
+    with(&core, |a| a.list_brands())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_brand(core: State<Core>, name: String, name_ur: Option<String>) -> R<Brand> {
+    with(&core, |a| a.create_brand(&name, name_ur))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn list_tax_rates(core: State<Core>) -> R<Vec<TaxRate>> {
+    with(&core, |a| a.list_tax_rates())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_tax_rate(core: State<Core>, name: String, rate_bp: i64, inclusive: bool) -> R<TaxRate> {
+    with(&core, |a| a.create_tax_rate(&name, rate_bp, inclusive))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn import_csv(core: State<Core>, csv_text: String) -> R<ImportSummary> {
+    with(&core, |a| a.import_csv(&csv_text))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn stock_list(core: State<Core>) -> R<Vec<InventoryBalanceView>> {
+    with(&core, |a| a.stock_list())
+}
+
+// ------------------------------------------------------------ parties
+
+#[tauri::command(rename_all = "snake_case")]
+fn list_customers(core: State<Core>, query: String) -> R<Vec<CustomerSummary>> {
+    with(&core, |a| a.list_customers(&query))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn list_vendors(core: State<Core>, query: String) -> R<Vec<CustomerSummary>> {
+    with(&core, |a| a.list_vendors(&query))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_party(core: State<Core>, input: CustomerInput) -> R<CustomerSummary> {
+    with(&core, |a| a.create_party(input))
+}
+
+// ------------------------------------------------------------ shift
+
+#[tauri::command(rename_all = "snake_case")]
+fn active_shift(core: State<Core>) -> R<Option<CashSession>> {
+    with(&core, |a| a.active_shift())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn start_shift(core: State<Core>, opening_float_paisa: i64) -> R<CashSession> {
+    with(&core, |a| a.start_shift(opening_float_paisa))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn cash_drop(core: State<Core>, amount_paisa: i64, reason: String) -> R<()> {
+    with(&core, |a| a.cash_drop(amount_paisa, &reason))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn close_shift(core: State<Core>, counted_cash_paisa: i64) -> R<ZReportData> {
+    with(&core, |a| a.close_shift(counted_cash_paisa))
+}
+
+// ------------------------------------------------------------ checkout
+
+#[tauri::command(rename_all = "snake_case")]
+fn quote(core: State<Core>, customer_id: Option<String>, lines: Vec<CheckoutLineInput>, global_discount_paisa: i64) -> R<Quote> {
+    with(&core, |a| a.quote(customer_id.as_deref(), &lines, global_discount_paisa))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn checkout(core: State<Core>, input: CheckoutInput) -> R<ReceiptData> {
+    with(&core, |a| a.checkout(input))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn recent_sales(core: State<Core>, limit: Option<usize>) -> R<Vec<RecentSale>> {
+    with(&core, |a| a.recent_sales(limit.unwrap_or(50)))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_receipt(core: State<Core>, sale_id: String) -> R<ReceiptData> {
+    with(&core, |a| a.receipt(&sale_id))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn park_cart(core: State<Core>, name: String, customer_id: Option<String>, lines: Vec<CheckoutLineInput>) -> R<String> {
+    with(&core, |a| a.park_cart(&name, customer_id, &lines))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn list_parked(core: State<Core>) -> R<Vec<ParkedCartSummary>> {
+    with(&core, |a| a.list_parked())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn recall_parked(core: State<Core>, id: String) -> R<RecalledCart> {
+    with(&core, |a| a.recall_parked(&id)).map(|(customer_id, lines)| RecalledCart { customer_id, lines })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn delete_parked(core: State<Core>, id: String) -> R<()> {
+    with(&core, |a| a.delete_parked(&id))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn find_sale_for_return(core: State<Core>, doc_no: String) -> R<ReturnableSale> {
+    with(&core, |a| a.find_sale_for_return(&doc_no))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn post_return(core: State<Core>, input: ReturnInput) -> R<CompletedReturn> {
+    with(&core, |a| a.post_return(input))
+}
+
+// ------------------------------------------------------------ khata
+
+#[tauri::command(rename_all = "snake_case")]
+fn khata_statement(core: State<Core>, party_id: String, from: String, to: String) -> R<KhataStatement> {
+    with(&core, |a| a.khata_statement(&party_id, &from, &to))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn receive_payment(core: State<Core>, party_id: String, amount_paisa: i64, method: String, reference: Option<String>) -> R<PaymentAllocationResult> {
+    with(&core, |a| a.receive_payment(&party_id, amount_paisa, &method, reference))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn aging(core: State<Core>, party_type: String) -> R<Vec<AgingReportBucket>> {
+    with(&core, |a| a.aging(&party_type))
+}
+
+/// Opens the WhatsApp reminder for a customer. The link is built by the backend
+/// and only `https://wa.me/` links are ever opened.
+#[tauri::command(rename_all = "snake_case")]
+fn open_whatsapp_reminder(core: State<Core>, party_id: String) -> R<String> {
+    let url = with(&core, |a| a.whatsapp_reminder_url(&party_id))?;
+    if !url.starts_with("https://wa.me/") || url.contains('"') || url.contains(' ') {
+        return Err("Refusing to open an unexpected link".into());
     }
-
-    let manifest = CryptoBackupService::export_backup(
-        &conn,
-        &dest_path,
-        &password,
-    ).map_err(|e| e.to_string())?;
-
-    Ok(format!(
-        "Backup created: {} ({:.1} KB, schema V{})",
-        dest_path.display(),
-        manifest.payload_size_bytes as f64 / 1024.0,
-        manifest.schema_version
-    ))
+    #[cfg(windows)]
+    let r = std::process::Command::new("explorer.exe").arg(&url).spawn();
+    #[cfg(target_os = "macos")]
+    let r = std::process::Command::new("open").arg(&url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let r = std::process::Command::new("xdg-open").arg(&url).spawn();
+    r.map_err(|e| format!("Could not open WhatsApp: {}", e))?;
+    Ok(url)
 }
 
-#[tauri::command]
-fn restore_backup(
-    _state: State<'_, AppState>,
-    password: String,
-    backup_file: String,
-) -> Result<String, String> {
-    let key_dir = DbKeyManager::default_key_dir();
-    let key_file = key_dir.join("master.key");
-    let (key, _) = DbKeyManager::load_or_create_key(&key_file).map_err(|e| e.to_string())?;
-    let db_path = key_dir.join("nextpos.db");
+// ------------------------------------------------------------ purchases / stock
 
-    let report = CryptoBackupService::restore_backup(
-        std::path::Path::new(&backup_file),
-        &db_path,
-        &password,
-        &key,
-    ).map_err(|e| e.to_string())?;
-
-    Ok(format!("Restored successfully! Safety copy: {:?}", report.safety_copy_path))
+#[tauri::command(rename_all = "snake_case")]
+fn post_purchase(core: State<Core>, input: CreatePurchaseInput) -> R<PurchaseInvoice> {
+    with(&core, |a| a.post_purchase(input))
 }
 
-#[derive(Serialize)]
-pub struct CloudSyncResult {
-    pub success: bool,
-    pub synced_count: i64,
-    pub message: String,
+#[tauri::command(rename_all = "snake_case")]
+fn list_purchases(core: State<Core>, limit: Option<usize>) -> R<Vec<PurchaseInvoice>> {
+    with(&core, |a| a.list_purchases(limit.unwrap_or(100)))
 }
 
-#[tauri::command]
-async fn sync_to_cloud(state: State<'_, AppState>) -> Result<CloudSyncResult, String> {
-    let (shop_id, shop_name, unsynced_events) = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let shop_name = SettingsRepo::get(&conn).map(|s| s.name).unwrap_or_else(|_| "Al-Rehman General Store".into());
-        let shop_id = pos_core::licensing::HardwareFingerprint::get_machine_id();
+#[tauri::command(rename_all = "snake_case")]
+fn start_stock_count(core: State<Core>, notes: Option<String>) -> R<StockCountSession> {
+    with(&core, |a| a.start_stock_count(notes))
+}
 
-        let mut stmt = conn.prepare(
-            "SELECT event_id, event_type, payload_json, occurred_at FROM sync_outbox WHERE synced_at IS NULL ORDER BY occurred_at ASC LIMIT 50"
-        ).map_err(|e| e.to_string())?;
+#[tauri::command(rename_all = "snake_case")]
+fn record_stock_counts(core: State<Core>, session_id: String, items: Vec<RecordCountItemInput>) -> R<()> {
+    with(&core, |a| a.record_stock_counts(&session_id, items))
+}
 
-        let events = stmt.query_map([], |r| {
-            let event_id: String = r.get(0)?;
-            let event_type: String = r.get(1)?;
-            let payload_str: String = r.get(2)?;
-            let occurred_at: String = r.get(3)?;
-            let payload: serde_json::Value = serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::Null);
-            Ok(serde_json::json!({
-                "event_id": event_id,
-                "event_type": event_type,
-                "payload": payload,
-                "occurred_at": occurred_at
-            }))
-        }).map_err(|e| e.to_string())?
-        .collect::<std::result::Result<Vec<serde_json::Value>, _>>()
-        .map_err(|e| e.to_string())?;
+#[tauri::command(rename_all = "snake_case")]
+fn current_stock_count(core: State<Core>) -> R<Option<StockCountSession>> {
+    with(&core, |a| a.current_stock_count())
+}
 
-        (shop_id, shop_name, events)
-    };
+#[tauri::command(rename_all = "snake_case")]
+fn finalize_stock_count(core: State<Core>, session_id: String) -> R<StockCountSession> {
+    with(&core, |a| a.finalize_stock_count(&session_id))
+}
 
-    if unsynced_events.is_empty() {
-        return Ok(CloudSyncResult {
-            success: true,
-            synced_count: 0,
-            message: "No pending events. All transactions are up to date on Supabase!".into(),
-        });
+// ------------------------------------------------------------ reports
+
+#[tauri::command(rename_all = "snake_case")]
+fn financial_summary(core: State<Core>, from: String, to: String) -> R<FinancialSummary> {
+    with(&core, |a| a.financial_summary(&from, &to))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn category_performance(core: State<Core>, from: String, to: String) -> R<Vec<CategoryPerformance>> {
+    with(&core, |a| a.category_performance(&from, &to))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn top_products(core: State<Core>, from: String, to: String, limit: Option<usize>) -> R<Vec<TopProduct>> {
+    with(&core, |a| a.top_products(&from, &to, limit.unwrap_or(10)))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn inventory_valuation(core: State<Core>) -> R<InventoryValuation> {
+    with(&core, |a| a.inventory_valuation())
+}
+
+// ------------------------------------------------------------ license / backup
+
+#[tauri::command(rename_all = "snake_case")]
+fn license_info(core: State<Core>) -> R<LicenseInfo> {
+    with(&core, |a| a.license()).map(|(status, machine_id)| LicenseInfo { status, machine_id })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn install_license(core: State<Core>, token: String) -> R<LicenseStatus> {
+    with(&core, |a| a.install_license(&token))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn default_backup_dir() -> String {
+    PosApp::default_backup_dir().to_string_lossy().to_string()
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_backup(core: State<Core>, dir: Option<String>, password: String) -> R<BackupFileInfo> {
+    with(&core, |a| a.create_backup(dir.as_deref(), &password))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn list_backups(core: State<Core>, dir: Option<String>) -> R<Vec<BackupFileInfo>> {
+    with(&core, |a| a.list_backups(dir.as_deref()))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn verify_backup(core: State<Core>, path: String, password: String) -> R<BackupManifest> {
+    with(&core, |a| a.verify_backup(&path, &password))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn restore_backup(core: State<Core>, path: String, password: String) -> R<RestoreReport> {
+    with(&core, |a| a.restore_backup(&path, &password))
+}
+
+// ------------------------------------------------------------ reports / snapshots
+
+#[tauri::command(rename_all = "snake_case")]
+fn low_stock(core: State<Core>) -> R<Vec<LowStockRow>> {
+    with(&core, |a| a.low_stock())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_snapshot(core: State<Core>) -> R<SnapshotInfo> {
+    with(&core, |a| a.create_snapshot())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn list_snapshots(core: State<Core>) -> R<Vec<SnapshotInfo>> {
+    with(&core, |a| a.list_snapshots())
+}
+
+// ------------------------------------------------------------ printing
+// Receipts are built by the backend from the database; the screen only says
+// which sale to print. Printing runs after the database lock is released.
+
+fn width_of(w: Option<String>) -> ReceiptWidth {
+    match w.as_deref() {
+        Some("80mm") => ReceiptWidth::Width80mm,
+        _ => ReceiptWidth::Width58mm,
     }
-
-    let count = unsynced_events.len();
-    let client = reqwest::Client::new();
-    let payload = serde_json::json!({
-        "p_shop_id": shop_id,
-        "p_shop_name": shop_name,
-        "p_events": unsynced_events
-    });
-
-    let res = client.post("https://gdmsdcbiewgpqkuqlpfc.supabase.co/rest/v1/rpc/sync_shop_events")
-        .header("apikey", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkbXNkY2JpZXdncHFrdXFscGZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM1OTk4ODUsImV4cCI6MjEwOTE3NTg4NX0.0dubMeBrXpgowmRXXKVx8988LfcAQOKWAvwucQja2jc")
-        .header("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkbXNkY2JpZXdncHFrdXFscGZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM1OTk4ODUsImV4cCI6MjEwOTE3NTg4NX0.0dubMeBrXpgowmRXXKVx8988LfcAQOKWAvwucQja2jc")
-        .header("Content-Type", "application/json")
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to reach Supabase Cloud: {}", e))?;
-
-    if !res.status().is_success() {
-        let err_text = res.text().await.unwrap_or_default();
-        return Err(format!("Supabase sync rejected: {}", err_text));
-    }
-
-    // Mark events as synced in local DB
-    {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let now = chrono::Utc::now().to_rfc3339();
-        let _ = conn.execute("UPDATE sync_outbox SET synced_at = ?1 WHERE synced_at IS NULL", [&now]);
-    }
-
-    Ok(CloudSyncResult {
-        success: true,
-        synced_count: count as i64,
-        message: format!("Successfully synced {} events to Supabase Cloud!", count),
-    })
 }
 
-#[tauri::command]
-fn list_system_printers() -> Result<Vec<String>, String> {
+#[tauri::command(rename_all = "snake_case")]
+fn list_printers(core: State<Core>) -> R<Vec<String>> {
+    with(&core, |a| a.require_printer_user())?;
     Ok(printer::list_system_printers())
 }
 
-#[tauri::command]
-fn print_raw_escpos(
-    printer_name: Option<String>,
-    raw_bytes: Vec<u8>,
-) -> Result<(), String> {
-    printer::print_bytes(printer_name.as_deref(), "ESC/POS Stream", &raw_bytes)
-        .map_err(|e| format!("Printing failed: {}", e))
-}
-
-#[tauri::command]
-fn kick_cash_drawer(printer_name: Option<String>) -> Result<(), String> {
-    printer::kick_drawer(printer_name.as_deref())
-        .map_err(|e| format!("Drawer kick failed: {}", e))
-}
-
-#[tauri::command]
-fn cut_printer_paper(printer_name: Option<String>) -> Result<(), String> {
-    printer::cut_paper(printer_name.as_deref())
-        .map_err(|e| format!("Paper cut failed: {}", e))
-}
-
-#[tauri::command]
-fn print_sale_receipt(
-    printer_name: Option<String>,
-    width: Option<String>,
-    payload: ReceiptPayload,
-) -> Result<(), String> {
-    let roll_width = match width.as_deref() {
-        Some("80mm") => ReceiptWidth::Width80mm,
-        _ => ReceiptWidth::Width58mm,
-    };
-    printer::print_sale_receipt(printer_name.as_deref(), roll_width, &payload)
+#[tauri::command(rename_all = "snake_case")]
+fn print_receipt(core: State<Core>, sale_id: String, printer_name: Option<String>, width: Option<String>) -> R<()> {
+    let payload = with(&core, |a| a.receipt_payload(&sale_id))?;
+    printer::print_sale_receipt(printer_name.as_deref(), width_of(width), &payload)
         .map_err(|e| format!("Receipt printing failed: {}", e))
 }
 
-fn main() {
-    println!(
-        "Next POS Desktop Shell - initializing with pos-core v{}",
-        pos_core::pos_core_version()
-    );
+#[tauri::command(rename_all = "snake_case")]
+fn print_z_report(core: State<Core>, printer_name: Option<String>, width: Option<String>) -> R<()> {
+    let payload = with(&core, |a| a.z_report_payload())?;
+    printer::print_sale_receipt(printer_name.as_deref(), width_of(width), &payload)
+        .map_err(|e| format!("Z report printing failed: {}", e))
+}
 
-    let conn = match open_app_database() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("CRITICAL: Failed to open encrypted database: {}", e);
-            panic!("Database initialization failed: {}", e);
+#[tauri::command(rename_all = "snake_case")]
+fn print_test_receipt(core: State<Core>, printer_name: Option<String>, width: Option<String>) -> R<()> {
+    let payload = with(&core, |a| a.test_receipt_payload())?;
+    printer::print_sale_receipt(printer_name.as_deref(), width_of(width), &payload)
+        .map_err(|e| format!("Test print failed: {}", e))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn kick_drawer(core: State<Core>, printer_name: Option<String>) -> R<()> {
+    with(&core, |a| a.require_printer_user())?;
+    printer::kick_drawer(printer_name.as_deref()).map_err(|e| format!("Drawer kick failed: {}", e))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn cut_paper(core: State<Core>, printer_name: Option<String>) -> R<()> {
+    with(&core, |a| a.require_printer_user())?;
+    printer::cut_paper(printer_name.as_deref()).map_err(|e| format!("Paper cut failed: {}", e))
+}
+
+// ------------------------------------------------------------ cloud sync (Owner opt-in)
+
+#[derive(Serialize)]
+struct CloudSyncResult {
+    synced_count: usize,
+    message: String,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn cloud_settings(core: State<Core>) -> R<CloudSettingsView> {
+    with(&core, |a| a.cloud_settings())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn save_cloud_settings(core: State<Core>, input: CloudSettingsInput) -> R<CloudSettingsView> {
+    with(&core, |a| a.save_cloud_settings(input))
+}
+
+/// Sends unsent events only when the Owner has turned sync on. The URL and key
+/// come from the encrypted database, never from the code or the screen.
+#[tauri::command(rename_all = "snake_case")]
+async fn sync_to_cloud(core: State<'_, Core>) -> R<CloudSyncResult> {
+    let batch = with(&core, |a| a.cloud_batch())?;
+    let Some(batch) = batch else {
+        return Ok(CloudSyncResult { synced_count: 0, message: "Cloud sync is off. The Owner can turn it on in Backup settings.".into() });
+    };
+    if batch.events.is_empty() {
+        return Ok(CloudSyncResult { synced_count: 0, message: "Nothing new to sync.".into() });
+    }
+    let body = serde_json::json!({
+        "p_shop_id": batch.shop_id,
+        "p_shop_name": batch.shop_name,
+        "p_events": batch.events,
+    });
+    let res = reqwest::Client::new()
+        .post(format!("{}/rest/v1/rpc/sync_shop_events", batch.url))
+        .header("apikey", &batch.api_key)
+        .header("Authorization", format!("Bearer {}", batch.api_key))
+        .json(&body)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach the cloud server: {}", e))?;
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        return Err(format!("Cloud server refused the sync ({}): {}", status, text.chars().take(300).collect::<String>()));
+    }
+    let n = batch.event_ids.len();
+    with(&core, |a| a.cloud_mark_synced(&batch.event_ids))?;
+    Ok(CloudSyncResult { synced_count: n, message: format!("Synced {} events.", n) })
+}
+
+// ------------------------------------------------------------ phones (shop WiFi)
+
+/// The phone link while it runs, and why it could not start (if so).
+struct Phones {
+    hub: Mutex<Option<LanHub>>,
+    error: Mutex<Option<String>>,
+    security_dir: std::path::PathBuf,
+}
+
+#[derive(Serialize)]
+struct PhonesStatus {
+    enabled: bool,
+    running: bool,
+    port: Option<u16>,
+    addresses: Vec<String>,
+    error: Option<String>,
+}
+
+fn start_phone_link(app: &AppHandle) {
+    let phones = app.state::<Phones>();
+    let mut hub = phones.hub.lock().unwrap_or_else(|p| p.into_inner());
+    if hub.is_some() {
+        return;
+    }
+    let shared = app.state::<Core>().0.clone();
+    let emitter = app.clone();
+    let on_scan = Arc::new(move |scan: pos_core::app::lan::RemoteScan| {
+        let _ = emitter.emit("remote-scan", scan);
+    });
+    match LanHub::start(shared, &phones.security_dir, pos_lan::HTTP_PORT, Some(pos_lan::DISCOVERY_PORT), on_scan) {
+        Ok(h) => {
+            *hub = Some(h);
+            *phones.error.lock().unwrap_or_else(|p| p.into_inner()) = None;
         }
-    };
+        Err(e) => *phones.error.lock().unwrap_or_else(|p| p.into_inner()) = Some(e),
+    }
+}
 
-    let app_state = AppState {
-        db: Mutex::new(conn),
-        current_user: Mutex::new(None),
-        active_shift: Mutex::new(None),
-    };
+fn stop_phone_link(app: &AppHandle) {
+    let phones = app.state::<Phones>();
+    let hub = phones.hub.lock().unwrap_or_else(|p| p.into_inner()).take();
+    if let Some(h) = hub {
+        h.stop();
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn phones_status(core: State<Core>, phones: State<Phones>) -> R<PhonesStatus> {
+    let enabled = with(&core, |a| {
+        a.lan_devices()?;
+        a.lan_enabled()
+    })?;
+    let hub = phones.hub.lock().map_err(|_| "Internal error".to_string())?;
+    Ok(PhonesStatus {
+        enabled,
+        running: hub.is_some(),
+        port: hub.as_ref().map(|h| h.port),
+        addresses: pos_core::app::lan::local_addresses(),
+        error: phones.error.lock().map(|e| e.clone()).unwrap_or(None),
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn set_phones_enabled(app: AppHandle, core: State<Core>, enabled: bool) -> R<()> {
+    with(&core, |a| a.set_lan_enabled(enabled))?;
+    if enabled {
+        start_phone_link(&app);
+    } else {
+        stop_phone_link(&app);
+    }
+    Ok(())
+}
+
+/// Text for the pairing QR code (valid for a few minutes, works once).
+#[tauri::command(rename_all = "snake_case")]
+fn phone_pairing_qr(app: AppHandle, core: State<Core>, phones: State<Phones>) -> R<String> {
+    if phones.hub.lock().map(|h| h.is_none()).unwrap_or(true) {
+        start_phone_link(&app);
+    }
+    let (code, store) = with(&core, |a| {
+        let code = a.lan_new_pairing_code()?;
+        Ok((code, a.get_settings()?.name))
+    })?;
+    let hub = phones.hub.lock().map_err(|_| "Internal error".to_string())?;
+    match hub.as_ref() {
+        Some(h) => Ok(h.pairing_qr(&store, &code).to_qr_text()),
+        None => Err(phones.error.lock().ok().and_then(|e| e.clone()).unwrap_or_else(|| "The phone link could not start.".into())),
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn cancel_phone_pairing(core: State<Core>) -> R<()> {
+    with(&core, |a| {
+        a.lan_cancel_pairing();
+        Ok(())
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn list_phones(core: State<Core>) -> R<Vec<LanDevice>> {
+    with(&core, |a| a.lan_devices())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn remove_phone(core: State<Core>, phones: State<Phones>, device_id: String) -> R<()> {
+    with(&core, |a| a.lan_revoke_device(&device_id))?;
+    if let Some(h) = phones.hub.lock().ok().as_ref().and_then(|h| h.as_ref()) {
+        h.forget_session(&device_id);
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------ history & editing
+
+#[tauri::command(rename_all = "snake_case")]
+fn list_sales(core: State<Core>, query: SaleListQuery) -> R<Vec<SaleListRow>> {
+    with(&core, |a| a.list_sales(query))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn sale_detail(core: State<Core>, sale_id: String) -> R<SaleDetail> {
+    with(&core, |a| a.sale_detail(&sale_id))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn sale_revision(core: State<Core>, sale_id: String, revision: i64) -> R<serde_json::Value> {
+    with(&core, |a| a.sale_revision(&sale_id, revision))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn quote_sale_edit(core: State<Core>, input: EditSaleInput) -> R<SaleEditPreview> {
+    with(&core, |a| a.quote_sale_edit(&input))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn edit_sale(core: State<Core>, input: EditSaleInput) -> R<ReceiptData> {
+    with(&core, |a| a.edit_sale(input))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn list_purchases_filtered(core: State<Core>, query: PurchaseListQuery) -> R<Vec<PurchaseListRow>> {
+    with(&core, |a| a.list_purchases_filtered(query))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn purchase_detail(core: State<Core>, purchase_id: String) -> R<PurchaseDetail> {
+    with(&core, |a| a.purchase_detail(&purchase_id))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn purchase_revision(core: State<Core>, purchase_id: String, revision: i64) -> R<serde_json::Value> {
+    with(&core, |a| a.purchase_revision(&purchase_id, revision))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn quote_purchase_edit(core: State<Core>, input: EditPurchaseInput) -> R<PurchaseEditPreview> {
+    with(&core, |a| a.quote_purchase_edit(&input))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn edit_purchase(core: State<Core>, input: EditPurchaseInput) -> R<PurchaseInvoice> {
+    with(&core, |a| a.edit_purchase(input))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn product_detail(core: State<Core>, product_id: String) -> R<ProductDetail> {
+    with(&core, |a| a.product_detail(&product_id))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn update_product(core: State<Core>, input: UpdateProductInput) -> R<ProductSearchResult> {
+    with(&core, |a| a.update_product(input))
+}
+
+fn main() {
+    let data_dir = std::env::var("NEXTPOS_DATA_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| PosApp::default_data_dir());
+    let opened = PosApp::open(&data_dir).map_err(|e| e.to_string());
+    let phones_on = opened.as_ref().map(|a| a.lan_enabled().unwrap_or(false)).unwrap_or(false);
 
     tauri::Builder::default()
-        .manage(app_state)
+        .manage(Core(Arc::new(Mutex::new(opened))))
+        .manage(Phones { hub: Mutex::new(None), error: Mutex::new(None), security_dir: data_dir.join("security") })
+        .setup(move |app| {
+            // Phones on the shop WiFi (only if the Owner turned it on).
+            if phones_on {
+                start_phone_link(app.handle());
+            }
+            // Automatic encrypted snapshot every 30 minutes (keeps 48 recent + 30 daily).
+            let handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(30 * 60));
+                let state = handle.state::<Core>();
+                let guard = match state.0.lock() {
+                    Ok(g) => g,
+                    Err(_) => continue,
+                };
+                if let Ok(pos) = guard.as_ref() {
+                    if let Err(e) = pos.auto_snapshot() {
+                        eprintln!("auto snapshot failed: {}", e);
+                    }
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
-            get_system_status,
-            setup_first_owner,
-            login_with_password,
-            login_with_pin,
-            list_active_users,
-            logout_user,
-            search_products,
-            list_products_catalog,
-            create_product,
-            list_categories,
-            create_category,
-            list_brands,
-            create_brand,
-            list_units,
-            create_unit,
-            create_party,
-            list_vendors,
-            create_purchase_invoice,
-            list_purchases,
-            post_sale,
-            get_recent_sales,
-            post_return,
-            open_shift,
-            get_active_shift,
-            record_cash_drop,
-            close_shift,
-            list_khata_parties,
-            get_khata_statement,
-            get_reports_summary,
-            get_category_performance,
-            get_top_products,
-            get_inventory_valuation,
-            get_low_stock_report,
-            export_backup,
-            restore_backup,
-            create_live_snapshot,
-            list_database_snapshots,
-            get_machine_identifier,
-            get_license_info,
-            activate_license_token,
-            sync_to_cloud,
-            reset_store_account,
-            list_system_printers,
-            print_raw_escpos,
-            kick_cash_drawer,
-            cut_printer_paper,
-            print_sale_receipt
+            app_status, setup_first_run, login_password, login_pin, logout, reveal_recovery_phrase,
+            list_users, create_user, set_pin, set_user_active,
+            get_settings, save_settings, diagnostics,
+            search_products, search_sellable, scan_code, generate_barcode, assign_barcode, print_labels, create_product, update_price, list_units, create_unit,
+            list_categories, create_category, list_brands, create_brand, list_tax_rates, create_tax_rate,
+            import_csv, stock_list,
+            list_customers, list_vendors, create_party,
+            active_shift, start_shift, cash_drop, close_shift,
+            quote, checkout, recent_sales, get_receipt, park_cart, list_parked, recall_parked, delete_parked,
+            find_sale_for_return, post_return,
+            khata_statement, receive_payment, aging, open_whatsapp_reminder,
+            post_purchase, list_purchases, start_stock_count, record_stock_counts, current_stock_count, finalize_stock_count,
+            financial_summary, category_performance, top_products, inventory_valuation,
+            license_info, install_license, default_backup_dir, create_backup, list_backups, verify_backup, restore_backup,
+            low_stock, create_snapshot, list_snapshots,
+            list_printers, print_receipt, print_z_report, print_test_receipt, kick_drawer, cut_paper,
+            cloud_settings, save_cloud_settings, sync_to_cloud,
+            post_purchase_return, list_purchase_returns, create_claim, update_claim, list_claims, report, save_export, open_exports_folder, import_products_file,
+            phones_status, set_phones_enabled, phone_pairing_qr, cancel_phone_pairing, list_phones, remove_phone,
+            list_sales, sale_detail, sale_revision, quote_sale_edit, edit_sale,
+            list_purchases_filtered, purchase_detail, purchase_revision, quote_purchase_edit, edit_purchase,
+            product_detail, update_product,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,7 +2,9 @@
 resolver = "2"
 members = [
     "crates/pos-core",
+    "crates/pos-lan",
     "apps/desktop/src-tauri",
+    "apps/mobile/src-tauri",
 ]
 
 [workspace.package]

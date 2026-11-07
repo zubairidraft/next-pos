@@ -6,7 +6,9 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-pos-core = { path = "../../../crates/pos-core" }
+base64 = "0.22"
+pos-core = { path = "../../../crates/pos-core", features = ["lan-hub"] }
+pos-lan = { path = "../../../crates/pos-lan" }
 tauri = { version = "2.0", features = [] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LanguageProvider } from "./context/LanguageContext";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
+import { SessionProvider, useSession } from "./context/SessionContext";
+import { ToastProvider } from "./lib/toast";
 import { Agentation } from "agentation";
-import { PinLoginModal } from "./components/PinLoginModal";
+import { LoginScreen } from "./components/LoginScreen";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { MasterDataView } from "./components/MasterDataView";
 import { CatalogView } from "./components/CatalogView";
@@ -15,783 +17,405 @@ import { ReportsView } from "./components/ReportsView";
 import { BackupView } from "./components/BackupView";
 import { LicenseView } from "./components/LicenseView";
 import { IndustryPacksView } from "./components/IndustryPacksView";
+import { UsersView } from "./components/UsersView";
+import { PhonesView } from "./components/PhonesView";
+import { SaleHistoryView } from "./components/SaleHistoryView";
+import { deliverRemoteScan } from "./lib/remoteScan";
+import { useToast } from "./lib/toast";
 import { SystemDiagnosticsModal } from "./components/SystemDiagnosticsModal";
-import { SystemStatusDto } from "./lib/contracts";
-import { api } from "./lib/api";
+import { PrinterSettingsModal } from "./components/PrinterSettingsModal";
+import { isBrowserTest, licenseLabel, onRemoteScan, Permission } from "./lib/api";
 import {
-  ShieldCheck,
-  Database,
-  Cpu,
-  WifiOff,
-  Coins,
-  CheckCircle2,
-  Boxes,
-  KeyRound,
-  FolderTree,
-  Wand2,
-  Package,
-  Truck,
-  ClipboardCheck,
-  ShoppingCart,
-  BookOpen,
-  BarChart3,
-  HardDriveDownload,
-  Key,
   Activity,
-  MoreHorizontal,
-  Sun,
-  Moon,
-  ChevronDown,
-  Tag,
-  Scale,
-  Users,
-  FileSpreadsheet,
-  Lock,
-  LogOut,
-  X,
-  AlertCircle,
-  FileUp,
   AlertTriangle,
+  BarChart3,
+  BookOpen,
+  Boxes,
+  ChevronDown,
+  ClipboardCheck,
+  FileSpreadsheet,
+  FileUp,
+  FolderTree,
+  HardDriveDownload,
+  History,
+  Key,
+  Loader2,
+  Lock,
+  Moon,
+  MoreHorizontal,
+  Package,
+  Printer,
+  Scale,
+  ShoppingCart,
+  ShieldCheck,
+  Smartphone,
+  Sun,
+  Tag,
+  Truck,
+  UserCog,
+  Users,
+  WifiOff,
 } from "lucide-react";
 
-function AppContent() {
-  const { theme, toggleTheme } = useTheme();
+type Tab = "checkout" | "sales" | "catalog" | "purchasing" | "khata" | "reports" | "backup" | "packs" | "license" | "audit" | "master" | "users" | "phones";
 
-  const [activeTab, setActiveTab] = useState<"checkout" | "catalog" | "purchasing" | "khata" | "reports" | "backup" | "packs" | "license" | "audit" | "master" | "dashboard" | "wizard">("checkout");
+/** Which permission opens each screen (the backend checks again on every action). */
+const TAB_PERMS: Record<Tab, Permission[]> = {
+  checkout: ["SalesCreate"],
+  sales: ["SalesCreate", "SalesReturn"],
+  catalog: ["PriceEdit", "InventoryAdjust"],
+  master: ["PriceEdit"],
+  khata: ["SalesCreate"],
+  purchasing: ["PurchaseEntry"],
+  audit: ["InventoryAdjust"],
+  reports: ["ReportsView"],
+  backup: ["BackupManage"],
+  license: ["SettingsManage"],
+  packs: ["SettingsManage"],
+  users: ["SettingsManage"],
+  phones: ["SettingsManage"],
+};
+
+const menuItem = "w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition";
+
+function Shell() {
+  const { theme, toggleTheme } = useTheme();
+  const { status, session, logout, can } = useSession();
+  const allowed = (t: Tab) => TAB_PERMS[t].some((p) => can(p));
+  const firstTab = (Object.keys(TAB_PERMS) as Tab[]).find(allowed) || "checkout";
+
+  const [activeTab, setActiveTab] = useState<Tab>(firstTab);
   const [masterSubTab, setMasterSubTab] = useState<"categories" | "brands" | "units">("categories");
-  const [purchasingSubTab, setPurchasingSubTab] = useState<"invoices" | "stock" | "vendors">("invoices");
-  const [isCatalogDropdownOpen, setIsCatalogDropdownOpen] = useState(false);
-  const [isInventoryDropdownOpen, setIsInventoryDropdownOpen] = useState(false);
-  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [purchasingSubTab, setPurchasingSubTab] = useState<"invoices" | "stock" | "vendors" | "claims">("invoices");
+  const [openMenu, setOpenMenu] = useState<null | "catalog" | "inventory" | "more">(null);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
-  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
-
-  // SaaS Admin State (Protected behind master password: NextPOS57348861!)
-  const [isSaasAdmin, setIsSaasAdmin] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("nextpos_saas_admin") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const [isSaasAdminModalOpen, setIsSaasAdminModalOpen] = useState(false);
-  const [saasPasswordInput, setSaasPasswordInput] = useState("");
-  const [saasError, setSaasError] = useState("");
-
+  const [isPrinterOpen, setIsPrinterOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
+  const [reportKind, setReportKind] = useState("daily");
+  const toast = useToast();
 
-  // Global click-outside and Escape key listener for all dropdowns
+  // Barcodes from paired phones go to the open Sale, Purchase or Stock count screen.
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
-      if (navRef.current && !navRef.current.contains(e.target as Node)) {
-        setIsCatalogDropdownOpen(false);
-        setIsInventoryDropdownOpen(false);
-        setIsMoreMenuOpen(false);
+    if (!session) return;
+    return onRemoteScan((s) => {
+      if (!deliverRemoteScan(s.code, s.device_name)) {
+        toast.info(`${s.device_name} scanned ${s.code}. Open Sale, a new purchase, or Stock count to use phone scans.`);
       }
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setIsCatalogDropdownOpen(false);
-        setIsInventoryDropdownOpen(false);
-        setIsMoreMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, []);
-
-  const handleSaasAdminLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (saasPasswordInput === "NextPOS57348861!") {
-      setIsSaasAdmin(true);
-      try {
-        localStorage.setItem("nextpos_saas_admin", "true");
-      } catch {}
-      setIsSaasAdminModalOpen(false);
-      setSaasPasswordInput("");
-      setSaasError("");
-    } else {
-      setSaasError("Invalid SaaS Admin credentials. Access denied.");
-    }
-  };
-
-  const handleSaasAdminLogout = () => {
-    setIsSaasAdmin(false);
-    try {
-      localStorage.removeItem("nextpos_saas_admin");
-    } catch {}
-    setIsMoreMenuOpen(false);
-  };
-
-  const [currentUser, setCurrentUser] = useState({
-    name: "Owner",
-    role: "Owner",
-  });
-
-  useEffect(() => {
-    api.getSystemStatus().then((sys) => {
-      if (sys.is_first_run) {
-        setActiveTab("wizard");
-      }
-      if (sys.current_user) {
-        setCurrentUser({
-          name: sys.current_user.username,
-          role: sys.current_user.role,
-        });
-      }
-    }).catch((err) => {
-      console.warn("Could not query system status via IPC:", err);
     });
+  }, [session, toast]);
+
+  // A different user logged in: make sure the open screen is one they may use.
+  useEffect(() => {
+    if (!allowed(activeTab)) setActiveTab(firstTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user_id]);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) setOpenMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpenMenu(null);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
   }, []);
 
-  const [status] = useState<SystemStatusDto>({
-    app_name: "Next POS",
-    pos_core_version: "0.1.0",
-    offline_ready: true,
-    database: {
-      encrypted: true,
-      journal_mode: "WAL",
-      foreign_keys: true,
-      schema_version: "V2__catalog_indexes",
-      tables_count: 46,
-    },
-    sample_currency: {
-      paisa: 12550,
-      formatted: "PKR 125.50",
-    },
-  });
+  const go = (t: Tab) => {
+    setActiveTab(t);
+    setOpenMenu(null);
+  };
+  const tabBtn = (active: boolean) =>
+    `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+      active ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+    }`;
+
+  const lic = status?.license;
+  const licWarn = lic && lic.status !== "Active" ? licenseLabel(lic) : null;
+  const moreTabs: Tab[] = ["backup", "license", "packs", "users", "phones"];
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
-      {/* Top Header Bar */}
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/80 backdrop-blur px-6 py-3 flex items-center justify-between sticky top-0 z-40 shadow-sm dark:shadow-none">
-        <div className="flex items-center gap-3">
+      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/80 backdrop-blur px-4 lg:px-6 py-3 flex items-center justify-between gap-3 sticky top-0 z-40 shadow-sm dark:shadow-none">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="bg-emerald-500/10 dark:bg-emerald-500/20 p-2 rounded-xl border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 shadow-sm">
             <Boxes className="w-6 h-6" />
           </div>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              Next POS
-              <span className="text-xs px-2 py-0.5 rounded font-mono font-semibold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
-                PRO
-              </span>
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Offline-First Retail POS & ERP</p>
+          <div className="min-w-0 hidden md:block">
+            <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white truncate">{status?.store_name || "Next POS"}</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Next POS</p>
           </div>
         </div>
 
-        {/* Center Nav Tabs */}
         <nav ref={navRef} className="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-950/70 p-1 rounded-xl border border-slate-300/80 dark:border-slate-800/80">
-          <button
-            onClick={() => {
-              setActiveTab("checkout");
-              setIsCatalogDropdownOpen(false);
-              setIsInventoryDropdownOpen(false);
-              setIsMoreMenuOpen(false);
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-              activeTab === "checkout"
-                ? "bg-emerald-600 text-white shadow-sm shadow-emerald-950"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <ShoppingCart className="w-3.5 h-3.5" />
-            <span>POS</span>
-          </button>
-
-          {/* Catalog Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setIsCatalogDropdownOpen((v) => !v);
-                setIsInventoryDropdownOpen(false);
-                setIsMoreMenuOpen(false);
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                activeTab === "catalog" || activeTab === "master"
-                  ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              <Package className="w-3.5 h-3.5" />
-              <span>Catalog</span>
-              <ChevronDown className="w-3 h-3 opacity-70" />
+          {allowed("checkout") && (
+            <button onClick={() => go("checkout")} className={tabBtn(activeTab === "checkout") + " font-bold"}>
+              <ShoppingCart className="w-3.5 h-3.5" />
+              <span>POS</span>
             </button>
+          )}
 
-            {isCatalogDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
-                <button
-                  onClick={() => {
-                    setActiveTab("catalog");
-                    setIsCatalogDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
-                >
-                  <Package className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>All Products & Prices</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setMasterSubTab("categories");
-                    setActiveTab("master");
-                    setIsCatalogDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
-                >
-                  <FolderTree className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Categories Manager</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setMasterSubTab("brands");
-                    setActiveTab("master");
-                    setIsCatalogDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
-                >
-                  <Tag className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Brands Directory</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setMasterSubTab("units");
-                    setActiveTab("master");
-                    setIsCatalogDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
-                >
-                  <Scale className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Units of Measure (UOM)</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setIsBulkImportOpen(true);
-                    setIsCatalogDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition border-t border-slate-100 dark:border-slate-800"
-                >
-                  <FileUp className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Excel / CSV Bulk Importer</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={() => {
-              setActiveTab("khata");
-              setIsCatalogDropdownOpen(false);
-              setIsInventoryDropdownOpen(false);
-              setIsMoreMenuOpen(false);
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "khata"
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Khata Ledger</span>
-          </button>
-
-          {/* Inventory Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setIsInventoryDropdownOpen((v) => !v);
-                setIsCatalogDropdownOpen(false);
-                setIsMoreMenuOpen(false);
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                activeTab === "purchasing" || activeTab === "audit"
-                  ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              <Truck className="w-3.5 h-3.5" />
-              <span>Inventory</span>
-              <ChevronDown className="w-3 h-3 opacity-70" />
+          {allowed("sales") && (
+            <button onClick={() => go("sales")} className={tabBtn(activeTab === "sales")}>
+              <History className="w-3.5 h-3.5" />
+              <span>Sale history</span>
             </button>
+          )}
 
-            {isInventoryDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
-                <button
-                  onClick={() => {
-                    setPurchasingSubTab("stock");
-                    setActiveTab("purchasing");
-                    setIsInventoryDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
-                >
-                  <Boxes className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Stock Balances & Valuation</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setPurchasingSubTab("invoices");
-                    setActiveTab("purchasing");
-                    setIsInventoryDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Purchase Invoices (Receiving)</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setPurchasingSubTab("vendors");
-                    setActiveTab("purchasing");
-                    setIsInventoryDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
-                >
-                  <Users className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Vendors & Distributors</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("khata");
-                    setIsInventoryDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
-                >
-                  <BookOpen className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Customers & Khata Accounts</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("audit");
-                    setIsInventoryDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition"
-                >
-                  <ClipboardCheck className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Stock Audit & Physical Count</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("reports");
-                    setIsInventoryDropdownOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-medium transition border-t border-slate-100 dark:border-slate-800"
-                >
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
-                  <span>Low Stock Reorder Alerts</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={() => {
-              setActiveTab("reports");
-              setIsCatalogDropdownOpen(false);
-              setIsInventoryDropdownOpen(false);
-              setIsMoreMenuOpen(false);
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              activeTab === "reports"
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>Reports</span>
-          </button>
-
-          {/* More Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setIsMoreMenuOpen((v) => !v)}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                ["backup", "packs", "license", "audit", "master", "wizard"].includes(activeTab)
-                  ? "bg-emerald-600/30 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              <MoreHorizontal className="w-3.5 h-3.5" />
-              <span>More</span>
-            </button>
-
-            {isMoreMenuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50">
-                <button
-                  onClick={() => { setActiveTab("backup"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
-                >
-                  <HardDriveDownload className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Cloud & Local Backup</span>
-                </button>
-                <button
-                  onClick={() => { setActiveTab("license"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
-                >
-                  <Key className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>License Management</span>
-                </button>
-                <button
-                  onClick={() => { setActiveTab("packs"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
-                >
-                  <Boxes className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Industry Packs</span>
-                </button>
-                <button
-                  onClick={() => { setActiveTab("audit"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
-                >
-                  <ClipboardCheck className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Stock Audit</span>
-                </button>
-                <button
-                  onClick={() => { setActiveTab("master"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
-                >
-                  <FolderTree className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Master Data</span>
-                </button>
-                <button
-                  onClick={() => { setActiveTab("wizard"); setIsMoreMenuOpen(false); }}
-                  className="w-full px-3 py-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 border-t border-slate-200 dark:border-slate-800"
-                >
-                  <Wand2 className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Setup Wizard</span>
-                </button>
-
-                {/* SaaS Admin Section */}
-                <div className="border-t border-slate-200 dark:border-slate-800 pt-1 mt-1">
-                  {!isSaasAdmin ? (
-                    <button
-                      onClick={() => {
-                        setIsSaasAdminModalOpen(true);
-                        setIsMoreMenuOpen(false);
-                      }}
-                      className="w-full px-3 py-2 text-left text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center gap-2 font-medium"
-                    >
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>SaaS Admin Login</span>
-                    </button>
-                  ) : (
+          {(allowed("catalog") || allowed("master")) && (
+            <div className="relative">
+              <button onClick={() => setOpenMenu(openMenu === "catalog" ? null : "catalog")} className={tabBtn(activeTab === "catalog" || activeTab === "master")}>
+                <Package className="w-3.5 h-3.5" />
+                <span>Catalog</span>
+                <ChevronDown className="w-3 h-3 opacity-70" />
+              </button>
+              {openMenu === "catalog" && (
+                <div className="absolute left-0 top-full mt-1.5 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50">
+                  <button onClick={() => go("catalog")} className={menuItem}>
+                    <Package className="w-3.5 h-3.5 text-emerald-500" /> Products & prices
+                  </button>
+                  {allowed("master") && (
                     <>
-                      <button
-                        onClick={() => {
-                          setIsDiagnosticsOpen(true);
-                          setIsMoreMenuOpen(false);
-                        }}
-                        className="w-full px-3 py-2 text-left text-xs text-emerald-600 dark:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 font-semibold"
-                      >
-                        <Activity className="w-3.5 h-3.5" />
-                        <span>Diagnostics (Admin)</span>
+                      <button onClick={() => { setMasterSubTab("categories"); go("master"); }} className={menuItem}>
+                        <FolderTree className="w-3.5 h-3.5 text-emerald-500" /> Categories
                       </button>
-                      <button
-                        onClick={handleSaasAdminLogout}
-                        className="w-full px-3 py-2 text-left text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center gap-2 font-medium"
-                      >
-                        <LogOut className="w-3.5 h-3.5" />
-                        <span>SaaS Admin Logout</span>
+                      <button onClick={() => { setMasterSubTab("brands"); go("master"); }} className={menuItem}>
+                        <Tag className="w-3.5 h-3.5 text-emerald-500" /> Brands
+                      </button>
+                      <button onClick={() => { setMasterSubTab("units"); go("master"); }} className={menuItem}>
+                        <Scale className="w-3.5 h-3.5 text-emerald-500" /> Units of measure
+                      </button>
+                      <button onClick={() => { setIsBulkImportOpen(true); setOpenMenu(null); }} className={menuItem + " border-t border-slate-100 dark:border-slate-800"}>
+                        <FileUp className="w-3.5 h-3.5 text-emerald-500" /> Import from CSV
                       </button>
                     </>
                   )}
                 </div>
-              </div>
-            )}
-          </div>
-        </nav>
+              )}
+            </div>
+          )}
 
-        {/* Right Action Controls */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Offline status indicator */}
-          <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-            <WifiOff className="w-3.5 h-3.5" />
-            Offline Ready
-          </span>
-
-          {/* Theme Toggle Button (Light / Dark) */}
-          <button
-            onClick={toggleTheme}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition"
-            title={`Toggle Theme (Ctrl+T) - Currently: ${theme === "dark" ? "Dark Mode" : "Light Mode"}`}
-          >
-            {theme === "dark" ? (
-              <>
-                <Sun className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden md:inline">Light</span>
-              </>
-            ) : (
-              <>
-                <Moon className="w-3.5 h-3.5 text-indigo-500" />
-                <span className="hidden md:inline">Dark</span>
-              </>
-            )}
-          </button>
-
-          {/* Health Diagnostics Button - ONLY VISIBLE TO SAAS ADMIN */}
-          {isSaasAdmin && (
-            <button
-              onClick={() => setIsDiagnosticsOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 hover:bg-amber-200 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700 transition"
-              title="SaaS Admin: Hardware & Engine Health Diagnostics"
-            >
-              <Activity className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span className="hidden lg:inline">Health (Admin)</span>
+          {allowed("khata") && (
+            <button onClick={() => go("khata")} className={tabBtn(activeTab === "khata")}>
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Khata</span>
             </button>
           )}
 
-          {/* Cashier Badge & PIN Switch */}
+          {(allowed("purchasing") || allowed("audit")) && (
+            <div className="relative">
+              <button onClick={() => setOpenMenu(openMenu === "inventory" ? null : "inventory")} className={tabBtn(activeTab === "purchasing" || activeTab === "audit")}>
+                <Truck className="w-3.5 h-3.5" />
+                <span>Inventory</span>
+                <ChevronDown className="w-3 h-3 opacity-70" />
+              </button>
+              {openMenu === "inventory" && (
+                <div className="absolute left-0 top-full mt-1.5 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50">
+                  {allowed("purchasing") && (
+                    <>
+                      <button onClick={() => { setPurchasingSubTab("stock"); go("purchasing"); }} className={menuItem}>
+                        <Boxes className="w-3.5 h-3.5 text-emerald-500" /> Stock balances
+                      </button>
+                      <button onClick={() => { setPurchasingSubTab("invoices"); go("purchasing"); }} className={menuItem}>
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" /> Purchase / return
+                      </button>
+                      <button onClick={() => { setPurchasingSubTab("vendors"); go("purchasing"); }} className={menuItem}>
+                        <Users className="w-3.5 h-3.5 text-emerald-500" /> Vendors
+                      </button>
+                      <button onClick={() => { setPurchasingSubTab("claims"); go("purchasing"); }} className={menuItem}>
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Claims
+                      </button>
+                    </>
+                  )}
+                  {allowed("audit") && (
+                    <button onClick={() => go("audit")} className={menuItem}>
+                      <ClipboardCheck className="w-3.5 h-3.5 text-amber-500" /> Stock count
+                    </button>
+                  )}
+                  {allowed("reports") && (
+                    <button onClick={() => (setReportKind("stock"), go("reports"))} className={menuItem + " border-t border-slate-100 dark:border-slate-800"}>
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-500" /> Low stock
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {allowed("reports") && (
+            <button onClick={() => (setReportKind("daily"), go("reports"))} className={tabBtn(activeTab === "reports")}>
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Reports</span>
+            </button>
+          )}
+
+          {moreTabs.some(allowed) && (
+            <div className="relative">
+              <button onClick={() => setOpenMenu(openMenu === "more" ? null : "more")} className={tabBtn(moreTabs.includes(activeTab))}>
+                <MoreHorizontal className="w-3.5 h-3.5" />
+                <span>More</span>
+              </button>
+              {openMenu === "more" && (
+                <div className="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 z-50">
+                  {allowed("backup") && (
+                    <button onClick={() => go("backup")} className={menuItem}>
+                      <HardDriveDownload className="w-3.5 h-3.5 text-emerald-500" /> Backup & cloud sync
+                    </button>
+                  )}
+                  {allowed("users") && (
+                    <button onClick={() => go("users")} className={menuItem}>
+                      <UserCog className="w-3.5 h-3.5 text-emerald-500" /> Users & PINs
+                    </button>
+                  )}
+                  {allowed("phones") && (
+                    <button onClick={() => go("phones")} className={menuItem}>
+                      <Smartphone className="w-3.5 h-3.5 text-emerald-500" /> Mobile phones
+                    </button>
+                  )}
+                  {allowed("license") && (
+                    <button onClick={() => go("license")} className={menuItem}>
+                      <Key className="w-3.5 h-3.5 text-emerald-500" /> License
+                    </button>
+                  )}
+                  {allowed("packs") && (
+                    <button onClick={() => go("packs")} className={menuItem}>
+                      <Boxes className="w-3.5 h-3.5 text-emerald-500" /> Industry packs
+                    </button>
+                  )}
+                  {can("SettingsManage") && (
+                    <button onClick={() => { setIsPrinterOpen(true); setOpenMenu(null); }} className={menuItem}>
+                      <Printer className="w-3.5 h-3.5 text-emerald-500" /> Printer & cash drawer
+                    </button>
+                  )}
+                  {can("SettingsManage") && (
+                    <button onClick={() => { setIsDiagnosticsOpen(true); setOpenMenu(null); }} className={menuItem + " border-t border-slate-100 dark:border-slate-800"}>
+                      <Activity className="w-3.5 h-3.5 text-amber-500" /> System health
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </nav>
+
+        <div className="flex items-center gap-2">
+          <span className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+            <WifiOff className="w-3.5 h-3.5" /> Offline
+          </span>
+          <button
+            onClick={toggleTheme}
+            aria-label="Toggle light or dark theme"
+            className="p-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700"
+          >
+            {theme === "dark" ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-500" />}
+          </button>
           <div className="flex items-center gap-2 pl-2 border-l border-slate-300 dark:border-slate-800">
             <div className="text-right hidden lg:block">
-              <div className="text-xs font-semibold text-slate-900 dark:text-white leading-none">{currentUser.name}</div>
-              <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium capitalize mt-0.5">{currentUser.role}</div>
+              <div className="text-xs font-semibold text-slate-900 dark:text-white leading-none">{session?.username}</div>
+              <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">{session?.role}</div>
             </div>
             <button
-              onClick={() => setIsPinModalOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition"
-              title="Quick Switch / Lock"
+              onClick={logout}
+              title="Lock / switch user"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700"
             >
-              <KeyRound className="w-3.5 h-3.5 text-amber-500" />
-              <span className="hidden sm:inline">Switch</span>
+              <Lock className="w-3.5 h-3.5 text-amber-500" />
+              <span className="hidden sm:inline">Lock</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main Content Area - Full Width */}
+      {licWarn && (
+        <div className={`px-6 py-2 text-xs font-semibold text-center ${status?.can_post_sales ? "bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200" : "bg-rose-600 text-white"}`}>
+          {licWarn}
+          {!status?.can_post_sales && " — new sales are blocked. Reports, khata and backups still work."}
+          {can("SettingsManage") && (
+            <button onClick={() => go("license")} className="underline ml-2">
+              Open License
+            </button>
+          )}
+        </div>
+      )}
+
       <main className="flex-1 w-full px-4 sm:px-6 py-3">
-        {activeTab === "checkout" && <CheckoutView />}
-
-        {activeTab === "catalog" && (
-          <CatalogView onOpenBulkImport={() => setIsBulkImportOpen(true)} />
-        )}
-
-        {activeTab === "purchasing" && <PurchasingView initialTab={purchasingSubTab} />}
-
-        {activeTab === "khata" && <KhataView />}
-
-        {activeTab === "reports" && <ReportsView />}
-
-        {activeTab === "backup" && <BackupView />}
-
-        {activeTab === "packs" && <IndustryPacksView />}
-
-        {activeTab === "license" && <LicenseView />}
-
-        {activeTab === "audit" && <StockAuditView />}
-
-        {activeTab === "master" && <MasterDataView initialTab={masterSubTab} />}
-
-        {activeTab === "wizard" && (
-          <FirstRunWizard onComplete={() => setActiveTab("checkout")} />
-        )}
-
-        {activeTab === "dashboard" && (
-          <div className="flex flex-col gap-6">
-            <div className="text-center mb-2">
-              <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-1">
-                Next POS System
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Pure Rust <code className="text-emerald-600 dark:text-emerald-400 font-mono">pos-core</code> engine • 50k Item Importer (&lt; 30s) • Complete Offline Architecture
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Card 1: Core Engine */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Architecture</span>
-                  <Cpu className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
-                </div>
-                <div>
-                  <div className="text-xl font-bold text-slate-900 dark:text-white mb-1">pos-core v{status.pos_core_version}</div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Decoupled pure Rust business logic & 50k item streaming engine</p>
-                </div>
-                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
-                  <span className="text-slate-500 dark:text-slate-400">Active Operator</span>
-                  <span className="text-emerald-600 dark:text-emerald-400 font-mono font-medium">{currentUser.name}</span>
-                </div>
-              </div>
-
-              {/* Card 2: Database & Storage */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Local Storage</span>
-                  <Database className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <div>
-                  <div className="text-xl font-bold text-slate-900 dark:text-white mb-1">SQLite {status.database.journal_mode} Mode</div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">V2 Catalog Indexes active (sub-15ms lookups)</p>
-                </div>
-                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
-                  <span className="text-slate-500 dark:text-slate-400">Import Speed</span>
-                  <span className="text-emerald-600 dark:text-emerald-400 font-medium font-mono">4,648 items/sec</span>
-                </div>
-              </div>
-
-              {/* Card 3: Precision Money */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Money Engine</span>
-                  <Coins className="w-5 h-5 text-amber-500 dark:text-amber-400" />
-                </div>
-                <div>
-                  <div className="text-xl font-bold text-slate-900 dark:text-white mb-1">{status.sample_currency.formatted}</div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Integer Paisa: {status.sample_currency.paisa} (Zero Float)</p>
-                </div>
-                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
-                  <span className="text-slate-500 dark:text-slate-400">Stock Policy</span>
-                  <span className="text-rose-500 font-semibold uppercase">Block Negative</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Security & Integrity Box */}
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-indigo-600 dark:text-indigo-400">
-                  <ShieldCheck className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-slate-900 dark:text-white text-sm">Phase 3 Catalog Engine Verified</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    High-speed catalog indexing, barcode scanner resolution, packaging unit conversions, and bulk Excel/CSV importer.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Sprint 3 Gates Met
-                </span>
-              </div>
-            </div>
-          </div>
+        {activeTab === "checkout" && allowed("checkout") && <CheckoutView />}
+        {activeTab === "sales" && allowed("sales") && <SaleHistoryView />}
+        {activeTab === "catalog" && allowed("catalog") && <CatalogView onOpenBulkImport={() => setIsBulkImportOpen(true)} />}
+        {activeTab === "purchasing" && allowed("purchasing") && <PurchasingView initialTab={purchasingSubTab} />}
+        {activeTab === "khata" && allowed("khata") && <KhataView />}
+        {activeTab === "reports" && allowed("reports") && <ReportsView initialKind={reportKind} />}
+        {activeTab === "backup" && allowed("backup") && <BackupView />}
+        {activeTab === "packs" && allowed("packs") && <IndustryPacksView />}
+        {activeTab === "license" && allowed("license") && <LicenseView />}
+        {activeTab === "audit" && allowed("audit") && <StockAuditView />}
+        {activeTab === "master" && allowed("master") && <MasterDataView initialTab={masterSubTab} />}
+        {activeTab === "users" && allowed("users") && <UsersView />}
+        {activeTab === "phones" && allowed("phones") && <PhonesView />}
+        {!allowed(activeTab) && (
+          <div className="text-center text-sm text-slate-500 mt-20">Your role has no screens here. Ask the Owner for access.</div>
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-200 dark:border-slate-800/60 px-6 py-3 text-center text-xs text-slate-500">
-        Next POS v0.1.0 • Offline Ready • High Performance Retail POS
-      </footer>
-
-      {/* Fast PIN Switch Modal */}
-      <PinLoginModal
-        isOpen={isPinModalOpen}
-        onClose={() => setIsPinModalOpen(false)}
-        onSuccess={(cashierName, role) => {
-          setCurrentUser({ name: cashierName, role });
-        }}
-      />
-
-      {/* Bulk Importer Modal */}
-      <BulkImportModal
-        isOpen={isBulkImportOpen}
-        onClose={() => setIsBulkImportOpen(false)}
-      />
-
-      {/* System Diagnostics Modal */}
-      <SystemDiagnosticsModal
-        isOpen={isDiagnosticsOpen}
-        onClose={() => setIsDiagnosticsOpen(false)}
-      />
-
-      {/* SaaS Admin Master Authentication Modal */}
-      {isSaasAdminModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
-            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
-                  <Lock className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white">SaaS Admin Access</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Master Administrative Portal</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsSaasAdminModalOpen(false);
-                  setSaasPasswordInput("");
-                  setSaasError("");
-                }}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaasAdminLogin} className="p-6 space-y-4">
-              {saasError && (
-                <div className="bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{saasError}</span>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Master Password
-                </label>
-                <input
-                  type="password"
-                  autoFocus
-                  required
-                  placeholder="Enter SaaS master password..."
-                  value={saasPasswordInput}
-                  onChange={(e) => {
-                    setSaasPasswordInput(e.target.value);
-                    if (saasError) setSaasError("");
-                  }}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 font-mono"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSaasAdminModalOpen(false);
-                    setSaasPasswordInput("");
-                    setSaasError("");
-                  }}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-medium transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition shadow-sm"
-                >
-                  Unlock Admin
-                </button>
-              </div>
-            </form>
-          </div>
+      {isBrowserTest && (
+        <div className="fixed bottom-2 left-2 z-30 px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-[11px] font-semibold shadow">
+          Browser test mode · test data · printing off
         </div>
       )}
+      <footer className="border-t border-slate-200 dark:border-slate-800/60 px-6 py-2 text-center text-xs text-slate-500">
+        Next POS v{status?.app_version} · {lic ? licenseLabel(lic) : ""}
+      </footer>
+
+      <BulkImportModal isOpen={isBulkImportOpen} onClose={() => setIsBulkImportOpen(false)} />
+      <SystemDiagnosticsModal isOpen={isDiagnosticsOpen} onClose={() => setIsDiagnosticsOpen(false)} />
+      <PrinterSettingsModal isOpen={isPrinterOpen} onClose={() => setIsPrinterOpen(false)} />
     </div>
   );
+}
+
+/** Decides what to show: startup error → first-run setup → login → the app. */
+function Gate() {
+  const { loading, startupError, status, session } = useSession();
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950 text-slate-500">
+        <Loader2 className="w-6 h-6 animate-spin" />
+      </div>
+    );
+  }
+  if (startupError || !status) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950 p-6">
+        <div role="alert" className="max-w-lg bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-800 rounded-2xl p-6 shadow-xl">
+          <h1 className="text-lg font-bold text-rose-600 mb-2">The shop data could not be opened</h1>
+          <p className="text-sm text-slate-700 dark:text-slate-300 break-words">{startupError}</p>
+          <ul className="text-xs text-slate-600 dark:text-slate-400 mt-4 list-disc pl-5 space-y-1">
+            <li>Close any other copy of Next POS and open it again.</li>
+            <li>If Windows was reinstalled, the shop key must be restored from the Owner's recovery phrase. Contact your dealer.</li>
+            <li>Do not delete anything in the NextPOS folder.</li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+  if (status.needs_setup) return <FirstRunWizard />;
+  if (!session) return <LoginScreen />;
+  return <Shell key={session.user_id} />;
 }
 
 export default function App() {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <AppContent />
-        {import.meta.env.DEV && (
-          <Agentation
-            endpoint="http://localhost:4747"
-            appName="Next POS"
-          />
-        )}
+        <ToastProvider>
+          <SessionProvider>
+            <Gate />
+          </SessionProvider>
+        </ToastProvider>
+        {import.meta.env.DEV && <Agentation endpoint="http://localhost:4747" appName="Next POS" />}
       </LanguageProvider>
     </ThemeProvider>
   );

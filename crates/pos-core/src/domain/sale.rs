@@ -57,6 +57,8 @@ pub struct SaleLineDto {
     pub product_name: String,
     pub sku: String,
     pub unit_code: String,
+    #[serde(default)]
+    pub unit_id: String,
     pub qty_milli: i64,
     pub unit_price_paisa: i64,
     pub discount_paisa: i64,
@@ -80,9 +82,234 @@ pub struct CompletedSale {
     pub lines: Vec<SaleLineDto>,
     pub tenders: Vec<PaymentTenderInput>,
     pub created_at: String,
+    #[serde(default)]
+    pub revision: i64,
+    #[serde(default)]
+    pub edited_at: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PricedLine {
+    pub input: PostSaleLineInput,
+    pub factor: i64,
+    pub gross: i64,
+    pub price_changed: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PricedLinesOutcome {
+    pub priced: Vec<PricedLine>,
+    pub subtotal_paisa: i64,
+    pub line_discounts_paisa: i64,
+    pub tax_paisa: i64,
 }
 
 pub struct SaleRepo;
+
+impl SaleRepo {
+    /// Validates every line against the catalog, enforcing price floor, discounts and unit factor.
+    pub fn validate_and_price_lines(
+        tx: &Connection,
+        lines: &[PostSaleLineInput],
+        customer_list: Option<&str>,
+    ) -> Result<PricedLinesOutcome> {
+        let mut priced = Vec::with_capacity(lines.len());
+        let mut subtotal_paisa: i64 = 0;
+        let mut line_discounts_paisa: i64 = 0;
+        let mut tax_paisa: i64 = 0;
+
+        for line in lines {
+            if line.qty_milli <= 0 {
+                return Err(PosError::Validation("Quantity must be greater than zero".to_string()));
+            }
+            if line.unit_price_paisa < 0 || line.discount_paisa < 0 || line.tax_paisa < 0 {
+                return Err(PosError::Validation("Price, discount and tax cannot be negative".to_string()));
+            }
+            let factor = unit_factor(tx, &line.variant_id, &line.unit_id)?;
+
+            let mut allowed: Vec<i64> = Vec::new();
+            if let Some(p) = catalog_price(tx, &line.variant_id, &line.unit_id, factor, "retail")? {
+                allowed.push(p);
+            }
+            if let Some(list) = customer_list {
+                if list != "retail" {
+                    if let Some(p) = catalog_price(tx, &line.variant_id, &line.unit_id, factor, list)? {
+                        allowed.push(p);
+                    }
+                }
+            }
+            let gross = mul_div_half_up(line.qty_milli, line.unit_price_paisa, 1000);
+            if line.discount_paisa > gross {
+                return Err(PosError::Validation("Line discount cannot be larger than the line amount".to_string()));
+            }
+
+            // Counter price: the salesman may charge any price, but never less than the
+            // wholesale price (or, when no wholesale price is set, the average cost).
+            // This also covers a line discount that would take the price below that.
+            if !allowed.contains(&line.unit_price_paisa) || line.discount_paisa > 0 {
+                if let Some(floor) = min_sale_price(tx, &line.variant_id, &line.unit_id, factor)? {
+                    let net_unit = mul_div_half_up(gross - line.discount_paisa, 1000, line.qty_milli);
+                    if net_unit < floor {
+                        let name: String = tx
+                            .query_row(
+                                "SELECT p.name FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id = ?1",
+                                params![line.variant_id],
+                                |r| r.get(0),
+                            )
+                            .unwrap_or_else(|_| "this item".into());
+                        return Err(PosError::BusinessRule(format!(
+                            "Price for {} cannot be below the wholesale price of {} (you entered {})",
+                            name,
+                            crate::money::Paisa(floor),
+                            crate::money::Paisa(net_unit)
+                        )));
+                    }
+                }
+                if let Some(approver) = &line.price_override_by {
+                    AuditRepo::require_manager(tx, approver, "Changing the selling price")?;
+                }
+            }
+            subtotal_paisa += gross;
+            line_discounts_paisa += line.discount_paisa;
+            tax_paisa += line.tax_paisa;
+            priced.push(PricedLine { input: line.clone(), factor, gross, price_changed: !allowed.contains(&line.unit_price_paisa) });
+        }
+
+        Ok(PricedLinesOutcome {
+            priced,
+            subtotal_paisa,
+            line_discounts_paisa,
+            tax_paisa,
+        })
+    }
+
+    /// Inserts sale_lines, creates stock movements, and records price override audits.
+    /// Shared between `post_sale` and `edit_sale`.
+    pub fn insert_lines_and_movements(
+        tx: &Connection,
+        sale_id: &str,
+        doc_no: &str,
+        priced: &[PricedLine],
+        user_id: Option<&str>,
+        movement_type: &str,
+    ) -> Result<Vec<SaleLineDto>> {
+        let mut lines_dto = Vec::with_capacity(priced.len());
+        for p in priced {
+            let line = &p.input;
+            let line_id = Ulid::new().to_string();
+            let base_qty_milli = mul_div_half_up(line.qty_milli, p.factor, 1000);
+
+            // Services (repair, fitting...) have no stock and no cost.
+            let is_service: bool = tx
+                .query_row(
+                    "SELECT p.is_service FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id = ?1",
+                    params![line.variant_id],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map(|v| v != 0)
+                .unwrap_or(false);
+
+            // Average cost per base unit; when no balance exists yet, use the latest receipt cost.
+            let avg_cost = if is_service { 0 } else { match InventoryRepo::get_balance(tx, &line.variant_id)? {
+                Some(b) if b.avg_cost_paisa > 0 => b.avg_cost_paisa,
+                _ => tx
+                    .query_row(
+                        "SELECT unit_cost_paisa FROM stock_movements
+                         WHERE variant_id = ?1 AND qty_signed_milli > 0 AND unit_cost_paisa > 0
+                         ORDER BY occurred_at DESC, id DESC LIMIT 1",
+                        params![line.variant_id],
+                        |r| r.get(0),
+                    )
+                    .optional()?
+                    .unwrap_or(0),
+            } };
+            let cogs_paisa = mul_div_half_up(base_qty_milli, avg_cost, 1000);
+            let line_total = p.gross - line.discount_paisa + line.tax_paisa;
+
+            tx.execute(
+                "INSERT INTO sale_lines (
+                    id, sale_id, variant_id, unit_id, qty_milli, unit_price_paisa,
+                    discount_paisa, tax_paisa, total_paisa, unit_cost_snapshot_paisa, cogs_paisa
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    line_id,
+                    sale_id,
+                    line.variant_id,
+                    line.unit_id,
+                    line.qty_milli,
+                    line.unit_price_paisa,
+                    line.discount_paisa,
+                    line.tax_paisa,
+                    line_total,
+                    avg_cost,
+                    cogs_paisa,
+                ],
+            )
+            .map_err(|e| PosError::Db(format!("Failed to insert sale line: {}", e)))?;
+
+            if !is_service {
+                InventoryRepo::record_movement(
+                    tx,
+                    RecordMovementParams {
+                        variant_id: line.variant_id.clone(),
+                        qty_signed_milli: -base_qty_milli,
+                        movement_type: movement_type.to_string(),
+                        source_doc: doc_no.to_string(),
+                        source_line: Some(line_id.clone()),
+                        unit_cost_paisa: avg_cost,
+                        batch_id: None,
+                        serial_id: None,
+                        user_id: user_id.map(str::to_string),
+                    },
+                )?;
+            }
+
+            // Every counter price change is logged, with who made it.
+            if p.price_changed || line.price_override_by.is_some() {
+                AuditRepo::write(
+                    tx,
+                    line.price_override_by.as_deref().or(user_id),
+                    "price_override",
+                    "sale_line",
+                    Some(&line_id),
+                    None,
+                    Some(&format!(
+                        "{{\"doc_no\":\"{}\",\"unit_price_paisa\":{}}}",
+                        doc_no, line.unit_price_paisa
+                    )),
+                )?;
+            }
+
+            let (p_name, sku, u_code): (String, String, String) = tx
+                .query_row(
+                    "SELECT p.name, p.sku, u.code
+                     FROM product_variants pv
+                     JOIN products p ON pv.product_id = p.id
+                     JOIN units u ON ?1 = u.id
+                     WHERE pv.id = ?2",
+                    params![line.unit_id, line.variant_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap_or_else(|_| ("Product".to_string(), "".to_string(), "PCS".to_string()));
+
+            lines_dto.push(SaleLineDto {
+                id: line_id,
+                variant_id: line.variant_id.clone(),
+                product_name: p_name,
+                sku,
+                unit_code: u_code,
+                unit_id: line.unit_id.clone(),
+                qty_milli: line.qty_milli,
+                unit_price_paisa: line.unit_price_paisa,
+                discount_paisa: line.discount_paisa,
+                tax_paisa: line.tax_paisa,
+                total_paisa: line_total,
+                cogs_paisa,
+            });
+        }
+        Ok(lines_dto)
+    }
+}
 
 /// Packaging factor (milli base units per 1 sale unit) for a variant/unit pair.
 pub(crate) fn unit_factor(conn: &Connection, variant_id: &str, unit_id: &str) -> Result<i64> {
@@ -104,7 +331,7 @@ pub(crate) fn unit_factor(conn: &Connection, variant_id: &str, unit_id: &str) ->
 
 /// Catalog price for one sale unit from a price list. Falls back to the base-unit
 /// price scaled by the packaging factor when no unit-specific price exists.
-fn catalog_price(
+pub(crate) fn catalog_price(
     conn: &Connection,
     variant_id: &str,
     unit_id: &str,
@@ -132,6 +359,20 @@ fn catalog_price(
         )
         .optional()?;
     Ok(base.map(|b| mul_div_half_up(b, factor, 1000)))
+}
+
+/// Lowest price per sale unit the counter may charge: the wholesale price for this
+/// unit, or the average cost when no wholesale price is set. None = no limit known.
+pub(crate) fn min_sale_price(conn: &Connection, variant_id: &str, unit_id: &str, factor: i64) -> Result<Option<i64>> {
+    if let Some(w) = catalog_price(conn, variant_id, unit_id, factor, "wholesale")? {
+        if w > 0 {
+            return Ok(Some(w));
+        }
+    }
+    let avg: Option<i64> = conn
+        .query_row("SELECT avg_cost_paisa FROM inventory_balances WHERE variant_id = ?1", params![variant_id], |r| r.get(0))
+        .optional()?;
+    Ok(avg.filter(|a| *a > 0).map(|a| mul_div_half_up(a, factor, 1000)))
 }
 
 impl SaleRepo {
@@ -186,57 +427,10 @@ impl SaleRepo {
         let customer_list = customer.as_ref().and_then(|c| c.1.clone());
 
         // ---- Validate and price every line before writing anything ----
-        struct Priced {
-            input: PostSaleLineInput,
-            factor: i64,
-            gross: i64,
-        }
-        let mut priced = Vec::with_capacity(req.lines.len());
-        let mut subtotal_paisa: i64 = 0;
-        let mut line_discounts_paisa: i64 = 0;
-        let mut tax_paisa: i64 = 0;
-
-        for line in &req.lines {
-            if line.qty_milli <= 0 {
-                return Err(PosError::Validation("Quantity must be greater than zero".to_string()));
-            }
-            if line.unit_price_paisa < 0 || line.discount_paisa < 0 || line.tax_paisa < 0 {
-                return Err(PosError::Validation("Price, discount and tax cannot be negative".to_string()));
-            }
-            let factor = unit_factor(&tx, &line.variant_id, &line.unit_id)?;
-
-            let mut allowed: Vec<i64> = Vec::new();
-            if let Some(p) = catalog_price(&tx, &line.variant_id, &line.unit_id, factor, "retail")? {
-                allowed.push(p);
-            }
-            if let Some(list) = customer_list.as_deref() {
-                if list != "retail" {
-                    if let Some(p) = catalog_price(&tx, &line.variant_id, &line.unit_id, factor, list)? {
-                        allowed.push(p);
-                    }
-                }
-            }
-            if !allowed.contains(&line.unit_price_paisa) {
-                match &line.price_override_by {
-                    Some(approver) => AuditRepo::require_manager(&tx, approver, "Changing the selling price")?,
-                    None => {
-                        return Err(PosError::BusinessRule(format!(
-                            "Price {} paisa does not match the catalog price {:?} for this item; manager approval required",
-                            line.unit_price_paisa, allowed
-                        )))
-                    }
-                }
-            }
-
-            let gross = mul_div_half_up(line.qty_milli, line.unit_price_paisa, 1000);
-            if line.discount_paisa > gross {
-                return Err(PosError::Validation("Line discount cannot be larger than the line amount".to_string()));
-            }
-            subtotal_paisa += gross;
-            line_discounts_paisa += line.discount_paisa;
-            tax_paisa += line.tax_paisa;
-            priced.push(Priced { input: line.clone(), factor, gross });
-        }
+        let outcome = Self::validate_and_price_lines(&tx, &req.lines, customer_list.as_deref())?;
+        let subtotal_paisa = outcome.subtotal_paisa;
+        let line_discounts_paisa = outcome.line_discounts_paisa;
+        let tax_paisa = outcome.tax_paisa;
 
         if req.global_discount_paisa > subtotal_paisa - line_discounts_paisa {
             return Err(PosError::Validation("Bill discount cannot be larger than the bill".to_string()));
@@ -286,8 +480,8 @@ impl SaleRepo {
         tx.execute(
             "INSERT INTO sales (
                 id, doc_no, status, party_id, cash_session_id,
-                subtotal_paisa, discount_paisa, tax_paisa, total_paisa, created_at
-            ) VALUES (?1, ?2, 'posted', ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                subtotal_paisa, discount_paisa, tax_paisa, total_paisa, created_at, user_id
+            ) VALUES (?1, ?2, 'posted', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 sale_id,
                 doc_no,
@@ -298,110 +492,19 @@ impl SaleRepo {
                 tax_paisa,
                 grand_total_paisa,
                 now,
+                req.user_id,
             ],
         )
         .map_err(|e| PosError::Db(format!("Failed to insert sale header: {}", e)))?;
 
-        let mut lines_dto = Vec::with_capacity(priced.len());
-        for p in &priced {
-            let line = &p.input;
-            let line_id = Ulid::new().to_string();
-            let base_qty_milli = mul_div_half_up(line.qty_milli, p.factor, 1000);
-
-            // Average cost per base unit; when no balance exists yet, use the latest receipt cost.
-            let avg_cost = match InventoryRepo::get_balance(&tx, &line.variant_id)? {
-                Some(b) if b.avg_cost_paisa > 0 => b.avg_cost_paisa,
-                _ => tx
-                    .query_row(
-                        "SELECT unit_cost_paisa FROM stock_movements
-                         WHERE variant_id = ?1 AND qty_signed_milli > 0 AND unit_cost_paisa > 0
-                         ORDER BY occurred_at DESC, id DESC LIMIT 1",
-                        params![line.variant_id],
-                        |r| r.get(0),
-                    )
-                    .optional()?
-                    .unwrap_or(0),
-            };
-            let cogs_paisa = mul_div_half_up(base_qty_milli, avg_cost, 1000);
-            let line_total = p.gross - line.discount_paisa + line.tax_paisa;
-
-            tx.execute(
-                "INSERT INTO sale_lines (
-                    id, sale_id, variant_id, unit_id, qty_milli, unit_price_paisa,
-                    discount_paisa, tax_paisa, total_paisa, unit_cost_snapshot_paisa, cogs_paisa
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![
-                    line_id,
-                    sale_id,
-                    line.variant_id,
-                    line.unit_id,
-                    line.qty_milli,
-                    line.unit_price_paisa,
-                    line.discount_paisa,
-                    line.tax_paisa,
-                    line_total,
-                    avg_cost,
-                    cogs_paisa,
-                ],
-            )
-            .map_err(|e| PosError::Db(format!("Failed to insert sale line: {}", e)))?;
-
-            InventoryRepo::record_movement(
-                &tx,
-                RecordMovementParams {
-                    variant_id: line.variant_id.clone(),
-                    qty_signed_milli: -base_qty_milli,
-                    movement_type: "sale".to_string(),
-                    source_doc: doc_no.clone(),
-                    source_line: Some(line_id.clone()),
-                    unit_cost_paisa: avg_cost,
-                    batch_id: None,
-                    serial_id: None,
-                    user_id: req.user_id.clone(),
-                },
-            )?;
-
-            if let Some(approver) = &line.price_override_by {
-                AuditRepo::write(
-                    &tx,
-                    Some(approver),
-                    "price_override",
-                    "sale_line",
-                    Some(&line_id),
-                    None,
-                    Some(&format!(
-                        "{{\"doc_no\":\"{}\",\"unit_price_paisa\":{}}}",
-                        doc_no, line.unit_price_paisa
-                    )),
-                )?;
-            }
-
-            let (p_name, sku, u_code): (String, String, String) = tx
-                .query_row(
-                    "SELECT p.name, p.sku, u.code
-                     FROM product_variants pv
-                     JOIN products p ON pv.product_id = p.id
-                     JOIN units u ON ?1 = u.id
-                     WHERE pv.id = ?2",
-                    params![line.unit_id, line.variant_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .unwrap_or_else(|_| ("Product".to_string(), "".to_string(), "PCS".to_string()));
-
-            lines_dto.push(SaleLineDto {
-                id: line_id,
-                variant_id: line.variant_id.clone(),
-                product_name: p_name,
-                sku,
-                unit_code: u_code,
-                qty_milli: line.qty_milli,
-                unit_price_paisa: line.unit_price_paisa,
-                discount_paisa: line.discount_paisa,
-                tax_paisa: line.tax_paisa,
-                total_paisa: line_total,
-                cogs_paisa,
-            });
-        }
+        let lines_dto = Self::insert_lines_and_movements(
+            &tx,
+            &sale_id,
+            &doc_no,
+            &outcome.priced,
+            req.user_id.as_deref(),
+            "sale",
+        )?;
 
         // ---- Payments ----
         // Cash is stored NET of change, so the drawer expectation equals real cash kept.
@@ -493,6 +596,8 @@ impl SaleRepo {
             lines: lines_dto,
             tenders: req.tenders,
             created_at: now,
+            revision: 0,
+            edited_at: None,
         })
     }
 }

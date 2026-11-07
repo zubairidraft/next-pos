@@ -223,7 +223,15 @@ impl ReturnRepo {
             )
             .map_err(|e| PosError::Db(format!("Failed to insert return line: {}", e)))?;
 
-            if line.restock_type == "sellable" {
+            let is_service: bool = tx
+                .query_row(
+                    "SELECT p.is_service FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id = ?1",
+                    params![orig_variant],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map(|v| v != 0)
+                .unwrap_or(false);
+            if line.restock_type == "sellable" && !is_service {
                 InventoryRepo::record_movement(
                     &tx,
                     RecordMovementParams {

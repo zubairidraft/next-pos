@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { X, Sparkles, Box, DollarSign, Barcode as BarcodeIcon, Layers, Plus } from "lucide-react";
-import { api } from "../lib/api";
+import { X, Sparkles, Box, DollarSign, Barcode as BarcodeIcon, Layers, Plus, Loader2 } from "lucide-react";
+import { api, errorText, formatQty, ProductDetail } from "../lib/api";
+import { useToast } from "../lib/toast";
 
 export interface ProductFormData {
   id?: string;
@@ -18,12 +19,20 @@ export interface ProductFormData {
   packFactor?: number;
   packBarcode?: string;
   packRetailPrice?: number;
+  /** Warn when stock falls to this many (in the base unit). 0 = no warning. */
+  lowStockAlert?: number;
+  /** A service (repair, fitting, delivery): sold like a product, no stock. */
+  isService?: boolean;
+  active?: boolean;
 }
 
 interface ProductFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (product: ProductFormData) => void;
+  productId?: string | null;
+  /** Resolves true when saved; the form stays open on false (for create mode). */
+  onSave?: (product: ProductFormData) => Promise<boolean>;
+  onSaved?: () => void;
   initialData?: ProductFormData | null;
   categories: { id: string; name: string }[];
   brands: { id: string; name: string }[];
@@ -33,12 +42,19 @@ interface ProductFormModalProps {
 export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   isOpen,
   onClose,
+  productId,
   onSave,
+  onSaved,
   initialData,
   categories,
   brands,
   units,
 }) => {
+  const toast = useToast();
+  const [saving, setSaving] = useState(false);
+  const [detail, setDetail] = useState<ProductDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
   const [localCategories, setLocalCategories] = useState(categories);
   const [localBrands, setLocalBrands] = useState(brands);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
@@ -54,44 +70,177 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setLocalBrands(brands);
   }, [brands]);
 
-  const [formData, setFormData] = useState<ProductFormData>(() => {
-    if (initialData) return initialData;
-    return {
-      sku: "",
-      name: "",
-      nameUr: "",
-      categoryId: categories[0]?.id || "",
-      brandId: brands[0]?.id || "",
-      baseUnit: units[0]?.code || "pc",
-      barcode: "",
-      retailPrice: 0,
-      wholesalePrice: 0,
-      hasPackagingUnit: false,
-      packUnit: "carton",
-      packFactor: 24,
-      packBarcode: "",
-      packRetailPrice: 0,
+  const blank = (): ProductFormData => ({
+    sku: "",
+    name: "",
+    nameUr: "",
+    categoryId: categories[0]?.id || "",
+    brandId: brands[0]?.id || "",
+    baseUnit: units[0]?.code || "pc",
+    barcode: "",
+    retailPrice: 0,
+    wholesalePrice: 0,
+    hasPackagingUnit: false,
+    packUnit: "carton",
+    packFactor: 24,
+    packBarcode: "",
+    packRetailPrice: 0,
+    lowStockAlert: 0,
+    isService: false,
+    active: true,
+  });
+
+  const [formData, setFormData] = useState<ProductFormData>(() => initialData || blank());
+
+  const editId = productId || initialData?.id;
+
+  // Clean form state on modal open/close and load details if editing
+  useEffect(() => {
+    if (isOpen && editId) {
+      setLoadingDetail(true);
+      api
+        .productDetail(editId)
+        .then((d) => {
+          setDetail(d);
+          setFormData({
+            id: d.id,
+            sku: d.sku,
+            name: d.name,
+            nameUr: d.name_ur || "",
+            categoryId: d.category_id || "",
+            brandId: d.brand_id || "",
+            baseUnit: d.base_unit_code,
+            barcode: d.barcode || "",
+            retailPrice: d.retail_price_paisa / 100,
+            wholesalePrice: d.wholesale_price_paisa ? d.wholesale_price_paisa / 100 : 0,
+            hasPackagingUnit: !!d.packaging_unit,
+            packUnit: d.packaging_unit?.unit_code || "carton",
+            packFactor: d.packaging_unit ? d.packaging_unit.factor_to_base / 1000 : 24,
+            packBarcode: d.packaging_unit?.barcode || "",
+            packRetailPrice: d.packaging_unit?.retail_price_paisa ? d.packaging_unit.retail_price_paisa / 100 : 0,
+            lowStockAlert: d.reorder_level_milli / 1000,
+            isService: d.is_service,
+            active: d.active,
+          });
+        })
+        .catch((e) => toast.error(errorText(e)))
+        .finally(() => setLoadingDetail(false));
+    } else if (isOpen) {
+      setDetail(null);
+      setFormData(blank());
+    } else {
+      setDetail(null);
+      setFormData(blank());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, editId]);
+
+  // Keyboard shortcut listener: Alt+A toggles active, F9 saves, Esc closes
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        setFormData((prev) => ({ ...prev, active: !prev.active }));
+      } else if (e.key === "F9") {
+        e.preventDefault();
+        submitForm();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
     };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   });
 
   if (!isOpen) return null;
 
-  const generateBarcode = () => {
-    const randomSuffix = Math.floor(100000000 + Math.random() * 900000000);
-    setFormData((prev) => ({
-      ...prev,
-      barcode: `8964${randomSuffix}`,
-    }));
+  const isBaseUnitLocked = !!detail && (detail.has_movements || detail.has_sales || detail.has_purchases);
+  const cannotBeService = !!detail && !detail.is_service && detail.on_hand_milli > 0;
+
+  /** Unique in-store EAN-13 from the backend (prefix 29, checked against all barcodes). */
+  const generateBarcode = async () => {
+    try {
+      const code = await api.generateBarcode();
+      setFormData((prev) => ({ ...prev, barcode: code }));
+    } catch (e) {
+      toast.error(errorText(e));
+    }
+  };
+
+  const submitForm = async () => {
+    if (!formData.sku.trim() || !formData.name.trim() || formData.retailPrice <= 0) {
+      toast.error("Enter a SKU, a product name and a retail price.");
+      return;
+    }
+    if (formData.wholesalePrice && formData.wholesalePrice > formData.retailPrice) {
+      toast.error("Wholesale price cannot be more than the sale price.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (detail) {
+        // Edit mode: updateProduct
+        const baseUnit = units.find((u) => u.code.toLowerCase() === (formData.baseUnit || "pc").toLowerCase());
+        if (!baseUnit) {
+          toast.error("Pick a unit for this product");
+          setSaving(false);
+          return;
+        }
+        const packUnit = formData.hasPackagingUnit
+          ? units.find((u) => u.code.toLowerCase() === formData.packUnit?.toLowerCase())
+          : undefined;
+
+        await api.updateProduct({
+          product_id: detail.id,
+          sku: formData.sku.trim(),
+          name: formData.name.trim(),
+          name_ur: formData.nameUr?.trim() || null,
+          category_id: formData.categoryId || null,
+          brand_id: formData.brandId || null,
+          base_unit_id: baseUnit.id,
+          barcode: formData.barcode?.trim() || null,
+          retail_price_paisa: Math.round(formData.retailPrice * 100),
+          wholesale_price_paisa: formData.wholesalePrice ? Math.round(formData.wholesalePrice * 100) : null,
+          tax_rate_id: detail.tax_rate_id,
+          reorder_level_milli:
+            !formData.isService && formData.lowStockAlert ? Math.round(formData.lowStockAlert * 1000) : 0,
+          is_service: !!formData.isService,
+          active: formData.active ?? true,
+          packaging_unit:
+            formData.hasPackagingUnit && packUnit
+              ? {
+                  unit_id: packUnit.id,
+                  factor_to_base: (formData.packFactor || 24) * 1000,
+                  barcode: formData.packBarcode?.trim() || null,
+                  retail_price_paisa: formData.packRetailPrice ? Math.round(formData.packRetailPrice * 100) : null,
+                }
+              : null,
+        });
+
+        toast.success(`Product ${formData.name.trim()} updated`);
+        onClose();
+        onSaved?.();
+      } else if (onSave) {
+        // Create mode
+        const ok = await onSave(formData);
+        if (ok) {
+          onClose();
+          onSaved?.();
+        }
+      }
+    } catch (err) {
+      toast.error(errorText(err));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.sku.trim() || !formData.name.trim() || formData.retailPrice <= 0) {
-      alert("Please enter a valid SKU, product name, and retail price.");
-      return;
-    }
-    onSave(formData);
-    onClose();
+    submitForm();
   };
 
   return (
@@ -99,19 +248,71 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-8">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
-          <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Box className="w-5 h-5 text-emerald-500" />
-            {initialData ? "Edit Product Details" : "Add New Product"}
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-3">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Box className="w-5 h-5 text-emerald-500" />
+              {detail ? "Edit product" : "Add New Product"}
+              {loadingDetail && <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />}
+            </h3>
+            {detail && (
+              <span className="text-[11px] text-slate-500 bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded font-mono">
+                Tracking: {detail.track_mode || "none"} (read-only)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={formData.active ?? true}
+                onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+                className="w-4 h-4 rounded text-emerald-600 focus:ring-0"
+              />
+              <span>Active</span>
+              <kbd className="px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[10px] font-mono">Alt+A</kbd>
+            </label>
+            <button
+              onClick={onClose}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {/* Product or service */}
+          <div className="flex gap-2" role="radiogroup" aria-label="Item type">
+            {([
+              [false, "Product", "Has stock: bought and sold"],
+              [true, "Service", "No stock: repair, fitting, delivery…"],
+            ] as const).map(([svc, title, help]) => {
+              const disabledSvc = svc && cannotBeService;
+              return (
+                <button
+                  key={title}
+                  type="button"
+                  disabled={disabledSvc}
+                  role="radio"
+                  aria-checked={!!formData.isService === svc}
+                  onClick={() => !disabledSvc && setFormData({ ...formData, isService: svc })}
+                  className={`flex-1 text-left px-3 py-2 rounded-xl border text-xs transition ${
+                    !!formData.isService === svc
+                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                      : "border-slate-300 dark:border-slate-700"
+                  } ${disabledSvc ? "opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-900" : ""}`}
+                >
+                  <div className="font-bold">{title}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {disabledSvc
+                      ? `Stock is ${formatQty(detail!.on_hand_milli, detail!.base_unit_code)}. Adjust stock to 0 first.`
+                      : help}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Row 1: SKU & Barcode */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -208,10 +409,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                           setLocalCategories((prev) => [...prev, newCat]);
                           setFormData((prev) => ({ ...prev, categoryId: newCat.id }));
                         } catch (err) {
-                          console.warn("Failed to create category in SQLite, using local fallback", err);
-                          const newCat = { id: `cat-${Date.now()}`, name };
-                          setLocalCategories((prev) => [...prev, newCat]);
-                          setFormData((prev) => ({ ...prev, categoryId: newCat.id }));
+                          toast.error(errorText(err));
+                          return;
                         }
                         setNewCategoryName("");
                         setIsCreatingCategory(false);
@@ -274,10 +473,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                           setLocalBrands((prev) => [...prev, newB]);
                           setFormData((prev) => ({ ...prev, brandId: newB.id }));
                         } catch (err) {
-                          console.warn("Failed to create brand in SQLite, using local fallback", err);
-                          const newB = { id: `brand-${Date.now()}`, name };
-                          setLocalBrands((prev) => [...prev, newB]);
-                          setFormData((prev) => ({ ...prev, brandId: newB.id }));
+                          toast.error(errorText(err));
+                          return;
                         }
                         setNewBrandName("");
                         setIsCreatingBrand(false);
@@ -309,9 +506,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 Base Unit
               </label>
               <select
+                disabled={isBaseUnitLocked}
                 value={formData.baseUnit}
                 onChange={(e) => setFormData({ ...formData, baseUnit: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 shadow-xs"
+                className={`w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 shadow-xs ${
+                  isBaseUnitLocked ? "opacity-60 cursor-not-allowed bg-slate-100 dark:bg-slate-900" : ""
+                }`}
               >
                 {units.map((u) => (
                   <option key={u.id} value={u.code}>
@@ -319,6 +519,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   </option>
                 ))}
               </select>
+              {isBaseUnitLocked && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                  Unit cannot change after stock or sales exist.
+                </p>
+              )}
             </div>
           </div>
 
@@ -331,7 +536,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="relative">
                 <input
                   type="number"
-                  step="0.5"
+                  step="0.01"
                   required
                   min="0.01"
                   value={formData.retailPrice || ""}
@@ -351,7 +556,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="relative">
                 <input
                   type="number"
-                  step="0.5"
+                  step="0.01"
                   value={formData.wholesalePrice || ""}
                   onChange={(e) =>
                     setFormData({ ...formData, wholesalePrice: parseFloat(e.target.value) || 0 })
@@ -362,6 +567,24 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 <DollarSign className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
               </div>
             </div>
+          </div>
+
+          {/* Low stock alert */}
+          <div className={formData.isService ? "hidden" : ""}>
+            <label htmlFor="low-stock-alert" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              Low stock alert ({formData.baseUnit || "pc"})
+            </label>
+            <input
+              id="low-stock-alert"
+              type="number"
+              step="any"
+              min="0"
+              value={formData.lowStockAlert || ""}
+              onChange={(e) => setFormData({ ...formData, lowStockAlert: Math.max(0, parseFloat(e.target.value) || 0) })}
+              placeholder="e.g. 5 (leave empty for no alert)"
+              className="w-full sm:w-1/2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono shadow-xs"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">When stock falls to this quantity or less, the product shows in Low stock (reports and dashboard).</p>
           </div>
 
           {/* Row 5: Packaging Unit Option */}
@@ -459,9 +682,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md transition"
+              disabled={saving}
+              className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 shadow-md transition"
             >
-              Save Product Record
+              {saving ? "Saving…" : detail ? "Save Changes (F9)" : "Save Product Record (F9)"}
             </button>
           </div>
         </form>

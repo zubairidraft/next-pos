@@ -9,7 +9,8 @@ import {
   Copy,
   Sliders,
 } from "lucide-react";
-import { api, ReceiptPayload } from "../lib/api";
+import { api, errorText } from "../lib/api";
+import { useToast } from "../lib/toast";
 
 interface PrinterSettingsModalProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
   onClose,
 }) => {
   const { t } = useTranslation();
+  const toast = useToast();
 
   const [printers, setPrinters] = useState<string[]>([]);
   const [selectedPrinter, setSelectedPrinter] = useState<string>(() => {
@@ -37,19 +39,24 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
     const val = localStorage.getItem("pos_auto_cut_paper");
     return val !== null ? val === "true" : true;
   });
+  const [printMode, setPrintMode] = useState<"raw" | "driver">(() => (localStorage.getItem("pos_print_mode") === "driver" ? "driver" : "raw"));
+  const handlePrintMode = (m: "raw" | "driver") => {
+    setPrintMode(m);
+    localStorage.setItem("pos_print_mode", m);
+  };
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [lastStreamBytes, setLastStreamBytes] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      api.listSystemPrinters()
+      api.listPrinters()
         .then((list) => {
           setPrinters(list);
           if (!selectedPrinter && list.length > 0) {
             setSelectedPrinter(list[0]);
           }
         })
-        .catch((e) => console.warn("Failed to list printers:", e));
+        .catch((e) => toast.error(errorText(e)));
     }
   }, [isOpen]);
 
@@ -59,7 +66,7 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
     const kickHex = "1B 70 00 19 FA";
     setLastStreamBytes(`[Drawer Kick Pulse] ${kickHex}`);
     try {
-      await api.kickCashDrawer(selectedPrinter || undefined);
+      await api.kickDrawer(selectedPrinter || null);
       setStatusMsg("Cash drawer kick pulse sent to " + (selectedPrinter || "Default Printer") + "!");
     } catch (err: any) {
       setStatusMsg("Drawer kick: " + (err?.message || String(err)));
@@ -71,7 +78,7 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
     const cutHex = "1D 56 42 00";
     setLastStreamBytes(`[Paper Cut Command] ${cutHex}`);
     try {
-      await api.cutPrinterPaper(selectedPrinter || undefined);
+      await api.cutPaper(selectedPrinter || null);
       setStatusMsg("Paper cut command sent to " + (selectedPrinter || "Default Printer") + "!");
     } catch (err: any) {
       setStatusMsg("Paper cut: " + (err?.message || String(err)));
@@ -80,44 +87,9 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
   };
 
   const handleTestPrintReceipt = async () => {
-    const testPayload: ReceiptPayload = {
-      store_name: "Al-Madina Superstore",
-      store_name_ur: "المدینہ سپر سٹور",
-      store_address: "Main Commercial Market, Lahore, Pakistan",
-      store_phone: "0300-1234567",
-      ntn: "1234567-8",
-      invoice_no: "TEST-0001",
-      date_time: new Date().toLocaleString(),
-      cashier_name: "Admin",
-      customer_name: "Walk-in Customer",
-      items: [
-        {
-          name: "Tapal Danedar Tea 450g",
-          name_ur: "ٹپال دانے دار چائے",
-          qty_display: "1 PC",
-          unit_price_paisa: 62000,
-          total_paisa: 62000,
-        },
-        {
-          name: "Dalda Fortified Cooking Oil 1L",
-          name_ur: "ڈالڈا کوکنگ آئل",
-          qty_display: "1 PC",
-          unit_price_paisa: 54000,
-          total_paisa: 54000,
-        },
-      ],
-      subtotal_paisa: 116000,
-      discount_paisa: 0,
-      tax_paisa: 0,
-      grand_total_paisa: 116000,
-      payments: [["cash", 116000]],
-      change_paisa: 0,
-      footer_note: "ESC/POS Thermal Hardware Test",
-      footer_note_ur: "کاروبار پی او ایس میں خوش آمدید",
-    };
-
     try {
-      await api.printSaleReceipt(testPayload, selectedPrinter || undefined, rollWidth);
+      // Built by the backend from this shop's details.
+      await api.printTestReceipt(selectedPrinter || null, rollWidth);
       setStatusMsg("Test receipt sent directly to " + (selectedPrinter || "Default Printer") + "!");
     } catch (err: any) {
       setStatusMsg("Hardware print failed: " + (err?.message || String(err)));
@@ -149,7 +121,7 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
   const copyToClipboard = () => {
     if (lastStreamBytes) {
       navigator.clipboard.writeText(lastStreamBytes);
-      alert(t("printer.copied_bytes"));
+      toast.success(t("printer.copied_bytes"));
     }
   };
 
@@ -214,6 +186,27 @@ export const PrinterSettingsModal: React.FC<PrinterSettingsModalProps> = ({
             <p className="text-[11px] text-slate-500 mt-1">
               Bypasses Windows graphics rasterizer via RAW spooling. Supports network printers (e.g. 192.168.1.100:9100).
             </p>
+          </div>
+
+          {/* How receipts are printed */}
+          <div>
+            <label className="text-xs font-semibold text-slate-300 mb-2 block">How to print receipts</label>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ["raw", "Thermal printer (ESC/POS)", "Prints at once, opens the drawer. For receipt printers."],
+                ["driver", "Windows print", "Any printer. Shows the print window; prints the receipt only."],
+              ] as const).map(([m, title, help]) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => handlePrintMode(m)}
+                  className={`text-left p-3 rounded-xl border text-xs ${printMode === m ? "border-emerald-500 bg-emerald-500/10 text-white" : "border-slate-800 text-slate-300"}`}
+                >
+                  <div className="font-bold">{title}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">{help}</div>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Roll Width Selection */}

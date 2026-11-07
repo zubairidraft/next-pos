@@ -1,3 +1,4 @@
+pub mod app;
 pub mod auth;
 pub mod backup;
 pub mod db;
@@ -6,6 +7,7 @@ pub mod error;
 pub mod hardware;
 pub mod licensing;
 pub mod money;
+pub use app::history;
 
 pub fn pos_core_version() -> &'static str {
     env!("CARGO_PKG_VERSION")

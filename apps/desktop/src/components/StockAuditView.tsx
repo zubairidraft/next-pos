@@ -1,461 +1,178 @@
-import React, { useState } from "react";
-import { useTranslation } from "react-i18next";
-import { LabelDesignerModal } from "./LabelDesignerModal";
-import {
-  ClipboardCheck,
-  RefreshCw,
-  Plus,
-  Minus,
-  Search,
-  CheckCircle2,
-  Tag,
-  ShieldCheck,
-  Lock,
-  Layers,
-  History,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, ClipboardCheck, Loader2, Play, Save, Search, Tag } from "lucide-react";
+import { api, errorText, formatPkr, formatQty, InventoryBalanceView, StockCountSession } from "../lib/api";
+import { useSession } from "../context/SessionContext";
+import { useToast } from "../lib/toast";
+import { useRemoteScan } from "../lib/remoteScan";
+import { BarcodeLabelsModal } from "./BarcodeLabelsModal";
 
-interface AuditLine {
-  variant_id: string;
-  sku: string;
-  name: string;
-  name_ur?: string;
-  barcode: string;
-  unit_code: string;
-  expected_qty: number;
-  counted_qty: number;
-  unit_cost_pkr: number;
-}
+/**
+ * Physical stock count. Counts are saved as you go; applying the count posts
+ * the differences as stock adjustments (Owner/Manager only).
+ */
+export function StockAuditView() {
+  const toast = useToast();
+  const { can } = useSession();
+  const [session, setSession] = useState<StockCountSession | null | undefined>(undefined);
+  const [stock, setStock] = useState<InventoryBalanceView[]>([]);
+  const [counts, setCounts] = useState<Record<string, string>>({});
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
 
-export const StockAuditView: React.FC = () => {
-  const { t } = useTranslation();
-
-  const [activeTab, setActiveTab] = useState<"session" | "history">("session");
-  const [isSessionActive, setIsSessionActive] = useState(true);
-  const [sessionDocNo] = useState("CNT-000001");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
-  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
-  const [managerPin, setManagerPin] = useState("");
-  const [isRebuilding, setIsRebuilding] = useState(false);
-  const [rebuildResult, setRebuildResult] = useState<string | null>(null);
-
-  const [auditLines, setAuditLines] = useState<AuditLine[]>([
-    {
-      variant_id: "var-1",
-      sku: "SHAN-BIR-50G",
-      name: "Shan Special Bombay Biryani Masala 50g",
-      name_ur: "Shan Bombay Biryani 50g",
-      barcode: "8964000101112",
-      unit_code: "PCS",
-      expected_qty: 120,
-      counted_qty: 118, // 2 shortage
-      unit_cost_pkr: 95.0,
-    },
-    {
-      variant_id: "var-2",
-      sku: "TAP-DAN-400G",
-      name: "Tapal Danedar Tea 400g Pouch",
-      name_ur: "Tapal Danedar Tea 400g",
-      barcode: "8961011002231",
-      unit_code: "PCS",
-      expected_qty: 45,
-      counted_qty: 46, // 1 surplus
-      unit_cost_pkr: 720.0,
-    },
-    {
-      variant_id: "var-3",
-      sku: "BAS-RICE-SUPER",
-      name: "Super Basmati Rice 1kg Pack",
-      name_ur: "Super Basmati Rice 1kg",
-      barcode: "8961234500019",
-      unit_code: "KG",
-      expected_qty: 8,
-      counted_qty: 8, // balanced
-      unit_cost_pkr: 340.0,
-    },
-  ]);
-
-  const [history] = useState([
-    {
-      id: "cnt-prev-1",
-      doc_no: "CNT-000000",
-      date: "2026-10-15",
-      notes: "Initial Store Opening Count",
-      items_audited: 34,
-      discrepancy_value_pkr: -190.0,
-      approved_by: "Admin (Zubair)",
-    },
-  ]);
-
-  // Adjust count
-  const handleUpdateCount = (variant_id: string, delta: number) => {
-    setAuditLines(
-      auditLines.map((line) => {
-        if (line.variant_id === variant_id) {
-          const nextCount = Math.max(0, line.counted_qty + delta);
-          return { ...line, counted_qty: nextCount };
-        }
-        return line;
-      })
-    );
-  };
-
-  const handleSetCountDirect = (variant_id: string, val: number) => {
-    setAuditLines(
-      auditLines.map((line) => {
-        if (line.variant_id === variant_id) {
-          return { ...line, counted_qty: Math.max(0, val) };
-        }
-        return line;
-      })
-    );
-  };
-
-  // Rebuild Cache handler
-  const handleRebuildCache = () => {
-    setIsRebuilding(true);
-    setRebuildResult(null);
-
-    setTimeout(() => {
-      setIsRebuilding(false);
-      setRebuildResult(
-        "Cache rebuilt in 18ms. 3 distinct variants replayed from stock_movements. 100% mathematical parity verified."
-      );
-    }, 800);
-  };
-
-  // Finalize audit
-  const handleFinalizeAudit = () => {
-    if (managerPin !== "1234" && managerPin !== "0000") {
-      alert("Invalid Manager PIN. Default test PIN is 1234.");
-      return;
+  const load = async () => {
+    try {
+      const [s, st] = await Promise.all([api.currentStockCount(), api.stockList()]);
+      setSession(s);
+      setStock(st);
+      const c: Record<string, string> = {};
+      s?.lines.forEach((l) => (c[l.variant_id] = String(l.counted_qty_milli / 1000)));
+      setCounts(c);
+    } catch (e) {
+      setSession(null);
+      toast.error(errorText(e));
     }
+  };
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    setIsPinModalOpen(false);
-    setIsSessionActive(false);
-    alert(
-      `Stock count ${sessionDocNo} finalized and approved! Balancing movements recorded for discrepancies.`
-    );
+  const saved = useMemo(() => new Map(session?.lines.map((l) => [l.variant_id, l]) || []), [session]);
+  const shown = stock.filter((r) => !q || r.product_name.toLowerCase().includes(q.toLowerCase()) || r.sku.toLowerCase().includes(q.toLowerCase()) || (r.barcode || "") === q);
+  const unsaved = Object.entries(counts).filter(([v, c]) => c !== "" && (!saved.has(v) || saved.get(v)!.counted_qty_milli !== Math.round(parseFloat(c) * 1000)));
+  const varianceValue = session?.lines.reduce((s, l) => s + l.variance_value_paisa, 0) || 0;
+
+  // A paired phone's camera finds the product in the list, like a USB scanner.
+  useRemoteScan((scanned) => setQ(scanned), !!session);
+
+  const start = async () => {
+    try {
+      await api.startStockCount(null);
+      await load();
+    } catch (e) {
+      toast.error(errorText(e));
+    }
   };
 
-  // Summary statistics
-  const totalVarianceQty = auditLines.reduce(
-    (acc, l) => acc + (l.counted_qty - l.expected_qty),
-    0
-  );
-  const totalVarianceValuePkr = auditLines.reduce(
-    (acc, l) => acc + (l.counted_qty - l.expected_qty) * l.unit_cost_pkr,
-    0
-  );
+  const saveCounts = async () => {
+    if (!session || unsaved.length === 0) return;
+    setBusy(true);
+    try {
+      await api.recordStockCounts(
+        session.id,
+        unsaved.map(([variant_id, c]) => ({ variant_id, counted_qty_milli: Math.round((parseFloat(c) || 0) * 1000) }))
+      );
+      toast.success(`${unsaved.length} counts saved`);
+      await load();
+    } catch (e) {
+      toast.error(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const apply = async () => {
+    if (!session) return;
+    if (unsaved.length > 0) return toast.error("Save the counts first.");
+    const ok = await toast.confirm(
+      `Apply stock count ${session.doc_no}?`,
+      `${session.lines.length} items counted. Stock will be changed to the counted quantities (difference at cost: ${formatPkr(varianceValue)}). Items you did not count are not changed.`,
+      { confirmLabel: "Apply count" }
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.finalizeStockCount(session.id);
+      toast.success("Stock count applied");
+      await load();
+    } catch (e) {
+      toast.error(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      {/* View Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900/60 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm p-5 flex flex-col gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-            <ClipboardCheck className="w-7 h-7 text-emerald-500" />
-            {t("audit.title") || "Physical Stock Audit & Count"}
-          </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{t("audit.subtitle") || "Stock variance analysis, physical cycle counts, and compensating adjustments."}</p>
+          <h2 className="text-xl font-bold flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-amber-500" /> Stock count</h2>
+          <p className="text-xs text-slate-500">{session ? `Count ${session.doc_no} started ${new Date(session.started_at).toLocaleString()}` : "Count the shelves and correct the stock."}</p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => setIsLabelModalOpen(true)}
-            className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl font-medium text-xs transition border border-slate-300 dark:border-slate-700 shadow-xs"
-          >
-            <Tag className="w-4 h-4 text-amber-500" />
-            {t("audit.open_label_designer") || "Barcode Label Designer"}
-          </button>
-
-          <button
-            onClick={handleRebuildCache}
-            disabled={isRebuilding}
-            className="flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/20 dark:hover:bg-indigo-600/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 px-4 py-2.5 rounded-xl font-medium text-xs transition shadow-xs"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRebuilding ? "animate-spin" : ""}`} />
-            {isRebuilding ? t("audit.rebuilding") || "Rebuilding..." : t("audit.btn_rebuild_cache") || "Rebuild Indexes"}
-          </button>
+        <div className="flex gap-2">
+          <button onClick={() => setLabelsOpen(true)} className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold flex items-center gap-1"><Tag className="w-4 h-4" /> Shelf labels</button>
+          {session && (
+            <>
+              <button onClick={saveCounts} disabled={busy || unsaved.length === 0} className="px-3 py-2 rounded-xl bg-slate-800 dark:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-1">
+                <Save className="w-4 h-4" /> Save counts{unsaved.length ? ` (${unsaved.length})` : ""}
+              </button>
+              {can("PriceEdit") && (
+                <button onClick={apply} disabled={busy || session.lines.length === 0} className="px-3 py-2 rounded-xl bg-emerald-600 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-1">
+                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Apply count
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
-      {/* Rebuild Cache Feedback Alert */}
-      {rebuildResult && (
-        <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-xl p-4 flex items-center justify-between gap-3 text-xs text-emerald-700 dark:text-emerald-300 animate-in fade-in">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-            <span>{rebuildResult}</span>
-          </div>
-          <button
-            onClick={() => setRebuildResult(null)}
-            className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-white"
-          >
-            ✕
-          </button>
+      {session === undefined && <Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" />}
+      {session === null && (
+        <div className="text-center py-12">
+          <p className="text-sm text-slate-500 mb-4">No count is open.</p>
+          <button onClick={start} className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold inline-flex items-center gap-2"><Play className="w-4 h-4" /> Start a stock count</button>
         </div>
       )}
 
-      {/* Tabs and Session Status */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
-          <button
-            onClick={() => setActiveTab("session")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
-              activeTab === "session"
-                ? "bg-emerald-600 text-white shadow-xs"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            {t("audit.tab_active_session") || "Active Audit"} ({sessionDocNo})
-          </button>
-
-          <button
-            onClick={() => setActiveTab("history")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
-              activeTab === "history"
-                ? "bg-emerald-600 text-white shadow-xs"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <History className="w-4 h-4" />
-            {t("audit.tab_history") || "Audit History"}
-          </button>
-        </div>
-
-        {activeTab === "session" && (
-          <div className="flex items-center gap-4">
-            <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
-              <span>Qty:</span>
-              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                {totalVarianceQty > 0 ? `+${totalVarianceQty}` : totalVarianceQty}
-              </span>
-              <span className="text-slate-400 dark:text-slate-600">•</span>
-              <span>Net Value:</span>
-              <span
-                className={`font-mono font-bold text-sm ${
-                  totalVarianceValuePkr < 0
-                    ? "text-rose-600 dark:text-rose-400"
-                    : totalVarianceValuePkr > 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-slate-700 dark:text-slate-300"
-                }`}
-              >
-                PKR {totalVarianceValuePkr.toFixed(2)}
-              </span>
-            </div>
-
-            {isSessionActive && (
-              <button
-                onClick={() => setIsPinModalOpen(true)}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs px-4 py-2 rounded-xl transition shadow-md flex items-center gap-2"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                {t("audit.finalize_btn") || "Finalize Audit"}
-              </button>
-            )}
+      {session && (
+        <>
+          {!can("PriceEdit") && <p className="text-xs text-slate-500">Enter and save the counts. An Owner or Manager applies the count.</p>}
+          <div className="relative sm:w-96">
+            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Scan barcode or search" className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm" />
           </div>
-        )}
-      </div>
-
-      {/* Tab Content: Active Audit Session */}
-      {activeTab === "session" && (
-        <div className="bg-white dark:bg-slate-900/80 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm space-y-4 p-4">
-          {/* Quick Scanner Barcode Input */}
-          <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute top-3 left-3" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder={t("audit.scan_placeholder") || "Scan barcode or search SKU for counting..."}
-              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl py-2.5 pl-9 pr-4 text-xs text-slate-900 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 font-mono shadow-xs"
-            />
-          </div>
-
-          {/* Variance Analysis Table */}
           <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
-              <thead className="bg-slate-100 dark:bg-slate-950 text-[10px] uppercase text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
-                <tr>
-                  <th className="px-5 py-3.5">SKU & Barcode</th>
-                  <th className="px-5 py-3.5">Product Name</th>
-                  <th className="px-5 py-3.5 text-center">{t("audit.expected_qty") || "Expected"}</th>
-                  <th className="px-5 py-3.5 text-center">{t("audit.counted_qty") || "Counted"}</th>
-                  <th className="px-5 py-3.5 text-center">{t("audit.variance_qty") || "Variance"}</th>
-                  <th className="px-5 py-3.5 text-right">{t("audit.variance_val") || "Value Diff"}</th>
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 dark:bg-slate-900 text-xs text-slate-500">
+                <tr className="text-left">
+                  <th className="px-3 py-2">Product</th>
+                  <th className="px-3 py-2 text-right">System stock</th>
+                  <th className="px-3 py-2">Counted</th>
+                  <th className="px-3 py-2 text-right">Difference</th>
+                  <th className="px-3 py-2 text-right">Value</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60 font-sans">
-                {auditLines.map((line) => {
-                  const variance = line.counted_qty - line.expected_qty;
-                  const varianceValue = variance * line.unit_cost_pkr;
-
+              <tbody>
+                {shown.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-slate-500">No products found.</td></tr>}
+                {shown.map((r) => {
+                  const line = saved.get(r.variant_id);
+                  const typed = counts[r.variant_id];
+                  const diff = typed !== undefined && typed !== "" ? Math.round(parseFloat(typed) * 1000) - r.on_hand_milli : null;
                   return (
-                    <tr key={line.variant_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                      <td className="px-5 py-3">
-                        <div className="font-bold text-slate-900 dark:text-white font-mono">{line.sku}</div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">{line.barcode}</div>
+                    <tr key={r.variant_id} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="px-3 py-2"><span className="font-semibold">{r.product_name}</span><span className="text-xs text-slate-400"> · {r.sku}</span></td>
+                      <td className="px-3 py-2 text-right">{formatQty(r.on_hand_milli, r.unit_code)}</td>
+                      <td className="px-3 py-2">
+                        <input
+                          inputMode="decimal"
+                          value={typed ?? ""}
+                          onChange={(e) => setCounts({ ...counts, [r.variant_id]: e.target.value.replace(/[^\d.]/g, "") })}
+                          className={`w-24 px-2 py-1 rounded-lg border bg-white dark:bg-slate-800 ${line ? "border-emerald-400" : "border-slate-300 dark:border-slate-600"}`}
+                        />
                       </td>
-
-                      <td className="px-5 py-3 font-sans">
-                        <div className="font-semibold text-slate-900 dark:text-slate-200">{line.name}</div>
-                      </td>
-
-                      <td className="px-5 py-3 text-center text-slate-500 dark:text-slate-400 font-mono">
-                        {line.expected_qty} {line.unit_code}
-                      </td>
-
-                      <td className="px-5 py-3 text-center">
-                        <div className="inline-flex items-center gap-2 bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 px-2 py-1 rounded-lg">
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateCount(line.variant_id, -1)}
-                            className="text-slate-500 hover:text-slate-700 dark:hover:text-white p-0.5"
-                          >
-                            <Minus className="w-3.5 h-3.5" />
-                          </button>
-                          <input
-                            type="number"
-                            min="0"
-                            value={line.counted_qty}
-                            onChange={(e) =>
-                              handleSetCountDirect(line.variant_id, Number(e.target.value))
-                            }
-                            className="w-12 bg-transparent text-center font-bold text-slate-900 dark:text-white focus:outline-none font-mono"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateCount(line.variant_id, 1)}
-                            className="text-slate-500 hover:text-slate-700 dark:hover:text-white p-0.5"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-
-                      <td className="px-5 py-3 text-center font-bold font-mono">
-                        {variance > 0 ? (
-                          <span className="text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-2.5 py-1 rounded-full text-[11px]">
-                            +{variance} (Surplus)
-                          </span>
-                        ) : variance < 0 ? (
-                          <span className="text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 px-2.5 py-1 rounded-full text-[11px]">
-                            {variance} (Shortage)
-                          </span>
-                        ) : (
-                          <span className="text-slate-500 bg-slate-100 dark:bg-slate-800/40 px-2.5 py-1 rounded-full text-[11px]">
-                            0 (Balanced)
-                          </span>
-                        )}
-                      </td>
-
-                      <td
-                        className={`px-5 py-3 text-right font-mono font-bold ${
-                          varianceValue < 0
-                            ? "text-rose-600 dark:text-rose-400"
-                            : varianceValue > 0
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-slate-500"
-                        }`}
-                      >
-                        PKR {varianceValue.toFixed(2)}
-                      </td>
+                      <td className={`px-3 py-2 text-right font-semibold ${diff ? (diff < 0 ? "text-rose-600" : "text-emerald-600") : ""}`}>{diff === null ? "" : formatQty(diff)}</td>
+                      <td className="px-3 py-2 text-right">{line ? formatPkr(line.variance_value_paisa) : ""}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-        </div>
+          <p className="text-xs text-slate-500">Saved counts have a green box. Difference at cost so far: <b>{formatPkr(varianceValue)}</b>.</p>
+        </>
       )}
-
-      {/* Tab Content: History */}
-      {activeTab === "history" && (
-        <div className="bg-white dark:bg-slate-900/80 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-          <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
-            <thead className="bg-slate-100 dark:bg-slate-950 text-[10px] uppercase text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
-              <tr>
-                <th className="px-6 py-4">Doc #</th>
-                <th className="px-6 py-4">Date</th>
-                <th className="px-6 py-4">Notes</th>
-                <th className="px-6 py-4 text-center">Items Audited</th>
-                <th className="px-6 py-4 text-right">Net Variance</th>
-                <th className="px-6 py-4">Approved By</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60 font-sans">
-              {history.map((h) => (
-                <tr key={h.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                  <td className="px-6 py-4 font-mono font-bold text-emerald-600 dark:text-emerald-400">{h.doc_no}</td>
-                  <td className="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{h.date}</td>
-                  <td className="px-6 py-4 text-slate-800 dark:text-slate-200">{h.notes}</td>
-                  <td className="px-6 py-4 text-center font-mono font-semibold text-slate-900 dark:text-white">{h.items_audited}</td>
-                  <td className="px-6 py-4 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
-                    PKR {h.discrepancy_value_pkr.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-300">{h.approved_by}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Manager PIN Modal */}
-      {isPinModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
-              <Lock className="w-5 h-5 text-amber-500" />
-              <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                {t("audit.manager_pin_required") || "Manager PIN Required"}
-              </h3>
-            </div>
-
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Approval required to post compensating stock movements for physical count variances.
-            </p>
-
-            <div>
-              <input
-                type="password"
-                maxLength={4}
-                value={managerPin}
-                onChange={(e) => setManagerPin(e.target.value)}
-                placeholder="••••"
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-3 text-center text-2xl tracking-widest text-slate-900 dark:text-white font-mono focus:outline-none focus:border-emerald-500"
-              />
-              <p className="text-[11px] text-slate-400 text-center mt-1">Default PIN: 1234</p>
-            </div>
-
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsPinModalOpen(false)}
-                className="flex-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 py-2.5 rounded-xl text-xs font-semibold transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleFinalizeAudit}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl text-xs font-bold transition shadow-md"
-              >
-                Approve & Post
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Label Designer Modal */}
-      <LabelDesignerModal
-        isOpen={isLabelModalOpen}
-        onClose={() => setIsLabelModalOpen(false)}
-      />
+      <BarcodeLabelsModal isOpen={labelsOpen} onClose={() => setLabelsOpen(false)} />
     </div>
   );
-};
+}

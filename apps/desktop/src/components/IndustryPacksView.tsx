@@ -10,8 +10,10 @@ import {
   Plus,
   QrCode,
 } from "lucide-react";
+import { useToast } from "../lib/toast";
 
 export function IndustryPacksView() {
+  const toast = useToast();
   const { t } = useTranslation();
   const [activePack, setActivePack] = useState<"grocery" | "electronics" | "apparel">("grocery");
 
@@ -70,7 +72,7 @@ export function IndustryPacksView() {
   const handleTestScaleBarcode = () => {
     const clean = scaleBarcode.trim();
     if (clean.length < 12) {
-      alert("Please enter a 12 or 13 digit scale barcode.");
+      toast.error("Enter a 12 or 13 digit scale barcode.");
       return;
     }
     const prefix = clean.substring(0, 2);
@@ -91,7 +93,7 @@ export function IndustryPacksView() {
       });
     } else {
       setScaleResult(null);
-      alert("Unknown scale prefix. Expected '20' (Price) or '21' (Weight).");
+      toast.error("Unknown scale prefix. Expected 20 (price) or 21 (weight).");
     }
   };
 

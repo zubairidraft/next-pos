@@ -1,341 +1,190 @@
-import React, { useState } from "react";
-import { useTranslation } from "react-i18next";
-import {
-  X,
-  RotateCcw,
-  Search,
-  CheckCircle2,
-  AlertCircle,
-  Plus,
-  Minus,
-  Sparkles,
-} from "lucide-react";
+import { useState, useEffect } from "react";
+import { Loader2, RotateCcw, Search, X } from "lucide-react";
+import { api, ApprovalInput, errorText, formatPkr, formatQty, RefundMethod, ReturnableSale } from "../lib/api";
+import { useSession } from "../context/SessionContext";
+import { useToast } from "../lib/toast";
+import { ApprovalDialog } from "./ApprovalDialog";
 
-interface ReturnItem {
-  id: string;
-  name: string;
-  sku: string;
-  unit: string;
-  unitPricePaisa: number;
-  qtySoldMilli: number;
-  qtyReturnMilli: number;
-  restockType: "sellable" | "damaged";
-}
-
-interface SaleReturnsModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onReturnProcessed: (docNo: string, refundPaisa: number) => void;
-}
-
-export const SaleReturnsModal: React.FC<SaleReturnsModalProps> = ({
-  isOpen,
+/** Customer return against a real invoice. Refund amounts are worked out by the backend. */
+export function SaleReturnsModal({
   onClose,
-  onReturnProcessed,
-}) => {
-  const { t } = useTranslation();
+  onDone,
+  initialDocNo,
+}: {
+  onClose: () => void;
+  onDone: () => void;
+  initialDocNo?: string;
+}) {
+  const toast = useToast();
+  const { can } = useSession();
+  const [docNo, setDocNo] = useState(initialDocNo || "");
+  const [sale, setSale] = useState<ReturnableSale | null>(null);
+  const [qty, setQty] = useState<Record<string, string>>({});
+  const [damaged, setDamaged] = useState<Record<string, boolean>>({});
+  const [reason, setReason] = useState("");
+  const [method, setMethod] = useState<RefundMethod>("cash");
+  const [busy, setBusy] = useState(false);
+  const [askApproval, setAskApproval] = useState(false);
 
-  const [invoiceQuery, setInvoiceQuery] = useState("");
-  const [activeInvoice, setActiveInvoice] = useState<string | null>(null);
-  const [returnItems, setReturnItems] = useState<ReturnItem[]>([]);
-  const [refundMethod, setRefundMethod] = useState<"cash" | "credit">("cash");
-  const [returnReason, setReturnReason] = useState("");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  if (!isOpen) return null;
-
-  const formatPkr = (paisa: number) => `PKR ${(paisa / 100).toFixed(2)}`;
-
-  const handleSearchInvoice = (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    const q = invoiceQuery.trim();
-    if (!q) return;
-
-    // Load sample sale invoice for demonstration & testing
-    setActiveInvoice(q.toUpperCase());
-    setReturnItems([
-      {
-        id: "line-01",
-        name: "Tapal Danedar Tea 450g",
-        sku: "BEV-TEA-450",
-        unit: "PKT",
-        unitPricePaisa: 62000,
-        qtySoldMilli: 2000,
-        qtyReturnMilli: 1000,
-        restockType: "sellable",
-      },
-      {
-        id: "line-02",
-        name: "Dalda Cooking Oil 1 Litre",
-        sku: "GRO-OIL-1L",
-        unit: "PC",
-        unitPricePaisa: 54000,
-        qtySoldMilli: 1000,
-        qtyReturnMilli: 0,
-        restockType: "sellable",
-      },
-    ]);
-  };
-
-  const updateReturnQty = (lineId: string, deltaMilli: number) => {
-    setReturnItems((prev) =>
-      prev.map((item) => {
-        if (item.id === lineId) {
-          const next = item.qtyReturnMilli + deltaMilli;
-          if (next < 0) return item;
-          if (next > item.qtySoldMilli) {
-            alert(`Cannot return more than purchased (${item.qtySoldMilli / 1000} ${item.unit})!`);
-            return item;
-          }
-          return { ...item, qtyReturnMilli: next };
-        }
-        return item;
-      })
-    );
-  };
-
-  const toggleRestockType = (lineId: string) => {
-    setReturnItems((prev) =>
-      prev.map((item) => {
-        if (item.id === lineId) {
-          return {
-            ...item,
-            restockType: item.restockType === "sellable" ? "damaged" : "sellable",
-          };
-        }
-        return item;
-      })
-    );
-  };
-
-  const totalRefundPaisa = returnItems.reduce(
-    (sum, item) => sum + Math.round((item.qtyReturnMilli * item.unitPricePaisa) / 1000),
-    0
-  );
-
-  const handleSubmitReturn = () => {
-    if (totalRefundPaisa <= 0) {
-      setErrorMsg("Please select at least 1 item quantity to return.");
-      return;
+  useEffect(() => {
+    if (initialDocNo) {
+      setBusy(true);
+      api
+        .findSaleForReturn(initialDocNo.trim())
+        .then((s) => {
+          setSale(s);
+          setQty({});
+          setDamaged({});
+          setMethod(s.customer_name ? "credit" : "cash");
+        })
+        .catch((err) => {
+          setSale(null);
+          toast.error(errorText(err));
+        })
+        .finally(() => setBusy(false));
     }
+  }, [initialDocNo]);
 
-    const docNo = `RET-${Math.floor(1000 + Math.random() * 9000)}`;
-    onReturnProcessed(docNo, totalRefundPaisa);
-    onClose();
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !askApproval) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [askApproval, onClose]);
+
+  const find = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const s = await api.findSaleForReturn(docNo.trim());
+      setSale(s);
+      setQty({});
+      setDamaged({});
+      setMethod(s.customer_name ? "credit" : "cash");
+    } catch (err) {
+      setSale(null);
+      toast.error(errorText(err));
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const lines = sale
+    ? sale.lines
+        .map((l) => ({ l, q: Math.round((parseFloat(qty[l.sale_line_id] || "0") || 0) * 1000) }))
+        .filter((x) => x.q > 0)
+    : [];
+  const tooMuch = lines.find((x) => x.q > x.l.qty_milli - x.l.returned_qty_milli);
+
+  const submit = async (approval: ApprovalInput | null) => {
+    if (!sale) return;
+    setBusy(true);
+    try {
+      const r = await api.postReturn({
+        sale_id: sale.id,
+        lines: lines.map((x) => ({ sale_line_id: x.l.sale_line_id, qty_milli: x.q, damaged: !!damaged[x.l.sale_line_id] })),
+        reason: reason || null,
+        refund_method: method,
+        approval,
+      });
+      toast.success(`Return ${r.doc_no} saved. Refund ${formatPkr(r.refund_paisa)}`);
+      onDone();
+      onClose();
+    } catch (e) {
+      toast.error(errorText(e));
+    } finally {
+      setBusy(false);
+      setAskApproval(false);
+    }
+  };
+
+  // Cashiers need an Owner/Manager PIN; managers approve their own returns.
+  const start = () => (can("SalesVoid") ? submit(null) : setAskApproval(true));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
-              <RotateCcw className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-white">
-                {t("returns.title")}
-              </h2>
-              <p className="text-xs text-slate-400">
-                Stock replenishment & refund processing against sales invoice
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl max-h-[92vh] flex flex-col">
+        <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <h2 className="text-base font-bold flex items-center gap-2"><RotateCcw className="w-5 h-5 text-amber-500" /> Customer return</h2>
+          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><X className="w-5 h-5" /></button>
         </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-5">
-          {errorMsg && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          {/* Search Invoice Form */}
-          <form onSubmit={handleSearchInvoice} className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={invoiceQuery}
-                onChange={(e) => setInvoiceQuery(e.target.value)}
-                placeholder={t("returns.invoice_placeholder")}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition"
-            >
-              Search
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setInvoiceQuery("INV-202610-0042");
-                setActiveInvoice("INV-202610-0042");
-                setReturnItems([
-                  {
-                    id: "line-01",
-                    name: "Tapal Danedar Tea 450g",
-                    sku: "BEV-TEA-450",
-                    unit: "PKT",
-                    unitPricePaisa: 62000,
-                    qtySoldMilli: 2000,
-                    qtyReturnMilli: 1000,
-                    restockType: "sellable",
-                  },
-                ]);
-              }}
-              className="px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-medium rounded-xl border border-emerald-500/30 flex items-center gap-1.5"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Sample Inv</span>
-            </button>
+        <div className="p-5 overflow-y-auto">
+          <form onSubmit={find} className="flex gap-2">
+            <input autoFocus value={docNo} onChange={(e) => setDocNo(e.target.value)} placeholder="Invoice number, e.g. INV-000123" className="flex-1 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white" />
+            <button disabled={!docNo.trim() || busy} className="px-3 py-2 rounded-xl bg-slate-800 dark:bg-slate-700 text-white text-sm font-semibold flex items-center gap-1"><Search className="w-4 h-4" /> Find</button>
           </form>
 
-          {/* Invoice Lines to Return */}
-          {activeInvoice && (
-            <div className="space-y-4">
-              <div className="bg-slate-950/40 border border-slate-800 rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-slate-900 text-slate-400 text-[10px] uppercase border-b border-slate-800">
-                    <tr>
-                      <th className="py-2.5 px-3">Item</th>
-                      <th className="py-2.5 px-2 text-right">Sold Qty</th>
-                      <th className="py-2.5 px-3 text-center">Return Qty</th>
-                      <th className="py-2.5 px-3 text-center">Restock Shelf</th>
-                      <th className="py-2.5 px-3 text-right">Refund</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60 font-sans">
-                    {returnItems.map((item) => {
-                      const refundForLine = Math.round(
-                        (item.qtyReturnMilli * item.unitPricePaisa) / 1000
-                      );
-                      return (
-                        <tr key={item.id} className="hover:bg-slate-800/20">
-                          <td className="py-2.5 px-3">
-                            <div className="font-bold text-white text-xs">{item.name}</div>
-                            <div className="text-[11px] text-slate-400 font-mono">{item.sku}</div>
-                          </td>
-                          <td className="py-2.5 px-2 text-right text-slate-400 font-mono">
-                            {item.qtySoldMilli / 1000} {item.unit}
-                          </td>
-                          <td className="py-2.5 px-3">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                onClick={() => updateReturnQty(item.id, -1000)}
-                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
-                              >
-                                <Minus className="w-3 h-3" />
-                              </button>
-                              <span className="font-bold text-white min-w-8 text-center">
-                                {item.qtyReturnMilli / 1000}
-                              </span>
-                              <button
-                                onClick={() => updateReturnQty(item.id, 1000)}
-                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
-                              >
-                                <Plus className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => toggleRestockType(item.id)}
-                              className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                                item.restockType === "sellable"
-                                  ? "bg-emerald-600/20 text-emerald-400 border-emerald-500/40"
-                                  : "bg-rose-600/20 text-rose-400 border-rose-500/40"
-                              }`}
-                            >
-                              {item.restockType === "sellable" ? "Sellable" : "Damaged / Waste"}
-                            </button>
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-bold text-white font-mono">
-                            {formatPkr(refundForLine)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Settlement Method & Reason */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] text-slate-400 block font-medium">
-                    {t("returns.refund_method")}
-                  </label>
-                  <select
-                    value={refundMethod}
-                    onChange={(e) => setRefundMethod(e.target.value as "cash" | "credit")}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="cash">Cash Outflow Refund</option>
-                    <option value="credit">Khata Customer Credit (Ledger)</option>
+          {sale && (
+            <>
+              <p className="text-xs text-slate-500 mt-3">
+                {sale.doc_no} · {new Date(sale.created_at).toLocaleString()} · {formatPkr(sale.total_paisa)}{sale.customer_name ? ` · ${sale.customer_name}` : ""}
+              </p>
+              <table className="w-full text-sm mt-2">
+                <thead>
+                  <tr className="text-left text-xs text-slate-500 border-b border-slate-200 dark:border-slate-800">
+                    <th className="py-1.5">Item</th>
+                    <th>Sold</th>
+                    <th>Already returned</th>
+                    <th>Return qty</th>
+                    <th>Damaged</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sale.lines.map((l) => {
+                    const left = l.qty_milli - l.returned_qty_milli;
+                    return (
+                      <tr key={l.sale_line_id} className="border-b border-slate-100 dark:border-slate-800/60">
+                        <td className="py-1.5">{l.name}<div className="text-xs text-slate-400">{formatPkr(l.unit_price_paisa)} / {l.unit_code}</div></td>
+                        <td>{formatQty(l.qty_milli, l.unit_code)}</td>
+                        <td>{formatQty(l.returned_qty_milli)}</td>
+                        <td>
+                          <input
+                            disabled={left <= 0}
+                            inputMode="decimal"
+                            value={qty[l.sale_line_id] || ""}
+                            onChange={(e) => setQty({ ...qty, [l.sale_line_id]: e.target.value.replace(/[^\d.]/g, "") })}
+                            className="w-20 px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
+                          />
+                        </td>
+                        <td><input type="checkbox" checked={!!damaged[l.sale_line_id]} onChange={(e) => setDamaged({ ...damaged, [l.sale_line_id]: e.target.checked })} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {tooMuch && <p className="text-xs text-rose-600 mt-2">{tooMuch.l.name}: only {formatQty(tooMuch.l.qty_milli - tooMuch.l.returned_qty_milli, tooMuch.l.unit_code)} can still be returned.</p>}
+              <div className="grid sm:grid-cols-2 gap-3 mt-4">
+                <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Refund as
+                  <select value={method} onChange={(e) => setMethod(e.target.value as RefundMethod)} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm">
+                    <option value="cash">Cash from drawer</option>
+                    {sale.customer_name && <option value="credit">Reduce customer's khata</option>}
+                    <option value="card">Card</option>
+                    <option value="jazzcash">JazzCash</option>
+                    <option value="easypaisa">Easypaisa</option>
+                    <option value="raast">Raast</option>
+                    <option value="bank">Bank transfer</option>
                   </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] text-slate-400 block font-medium">
-                    Return Reason
-                  </label>
-                  <input
-                    type="text"
-                    value={returnReason}
-                    onChange={(e) => setReturnReason(e.target.value)}
-                    placeholder="e.g. Expired, damaged, or wrong item"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
+                </label>
+                <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Reason
+                  <input value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm" />
+                </label>
               </div>
-
-              {/* Total Refund Banner */}
-              <div className="p-4 bg-gradient-to-r from-rose-950/40 via-slate-900 to-rose-950/20 border border-rose-500/30 rounded-xl flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] uppercase tracking-wider text-rose-400 font-bold block">
-                    {t("returns.refund_amount")}
-                  </span>
-                  <div className="text-2xl font-black text-white">
-                    {formatPkr(totalRefundPaisa)}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSubmitReturn}
-                  disabled={totalRefundPaisa <= 0}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-950 transition"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{t("returns.post_return_btn")}</span>
-                </button>
-              </div>
-            </div>
+              <p className="text-xs text-slate-500 mt-2">The refund is what the customer actually paid for these items (after any bill discount). It is worked out when you save.</p>
+              <button onClick={start} disabled={busy || lines.length === 0 || !!tooMuch} className="mt-4 w-full py-3 rounded-xl bg-amber-600 disabled:opacity-40 text-white font-bold flex items-center justify-center gap-2">
+                {busy && <Loader2 className="w-4 h-4 animate-spin" />} Save return
+              </button>
+            </>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="px-6 py-3.5 bg-slate-950/80 border-t border-slate-800 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl border border-slate-700 transition"
-          >
-            Close
-          </button>
-        </div>
       </div>
+      {askApproval && (
+        <ApprovalDialog title="Manager approval" reason="Returns need an Owner or Manager PIN." onApprove={(a) => submit(a)} onCancel={() => setAskApproval(false)} />
+      )}
     </div>
   );
-};
+}

@@ -261,14 +261,14 @@ fn biz10_line_total_rounds_half_up() {
     let (mut c, _f) = db();
     let fx = fixture(&c, 10, 5000, 0);
     let mgr = make_user(&c, "manager1", "manager");
-    // 1.5 kg x 101 paisa = 151.5 paisa -> 152 (price approved by manager)
-    let mut l = line(&fx, 1500, 101, 0);
+    // 1.5 kg x 5001 paisa = 7501.5 paisa -> 7502 (price approved by manager, above cost)
+    let mut l = line(&fx, 1500, 5001, 0);
     l.price_override_by = Some(mgr);
     let s = SaleRepo::post_sale(&mut c, PostSaleRequest {
         customer_id: None, cash_session_id: None, lines: vec![l],
-        global_discount_paisa: 0, tenders: vec![tender("cash", 200)], user_id: None, credit_override_by: None }).unwrap();
+        global_discount_paisa: 0, tenders: vec![tender("cash", 8000)], user_id: None, credit_override_by: None }).unwrap();
     println!("OBSERVED subtotal paisa = {}", s.subtotal_paisa);
-    assert_eq!(s.subtotal_paisa, 152, "posting truncates instead of half-up rounding");
+    assert_eq!(s.subtotal_paisa, 7502, "posting truncates instead of half-up rounding");
 }
 
 #[test]

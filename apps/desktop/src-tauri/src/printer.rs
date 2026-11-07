@@ -2,6 +2,7 @@
 
 use pos_core::hardware::{EscPosGenerator, ReceiptPayload, ReceiptWidth};
 use std::io::{Error, ErrorKind, Result};
+#[cfg(target_os = "windows")]
 use std::process::Command;
 
 #[cfg(target_os = "windows")]
@@ -147,8 +148,9 @@ pub fn list_system_printers() -> Vec<String> {
     vec!["Default Printer".to_string()]
 }
 
-pub fn print_bytes(printer_target: Option<&str>, doc_title: &str, bytes: &[u8]) -> Result<()> {
-    let target = printer_target.filter(|t| !t.trim().is_empty());
+pub fn print_bytes(printer_target: Option<&str>, #[allow(unused_variables)] doc_title: &str, bytes: &[u8]) -> Result<()> {
+    // "Default Printer" is the placeholder shown when no printers were found.
+    let target = printer_target.filter(|t| !t.trim().is_empty() && *t != "Default Printer");
 
     // 1. If target is network IP/Port e.g. "192.168.1.100:9100" or starts with "tcp://"
     if let Some(dest) = target {
@@ -169,12 +171,21 @@ pub fn print_bytes(printer_target: Option<&str>, doc_title: &str, bytes: &[u8]) 
                 clean_dest.to_string()
             };
 
-            let mut stream = TcpStream::connect_timeout(
-                &socket_addr
-                    .parse()
-                    .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?,
-                Duration::from_secs(3),
-            )?;
+            let addr: std::net::SocketAddr = socket_addr
+                .parse()
+                .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+            // Only printers on the shop's own network, on the usual raw-print ports.
+            let local = match addr.ip() {
+                std::net::IpAddr::V4(ip) => ip.is_private() || ip.is_loopback() || ip.is_link_local(),
+                std::net::IpAddr::V6(ip) => ip.is_loopback(),
+            };
+            if !local || !(9100..=9102).contains(&addr.port()) {
+                return Err(Error::new(
+                    ErrorKind::PermissionDenied,
+                    "Network printers must be on the local network (port 9100-9102)",
+                ));
+            }
+            let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(3))?;
             stream.write_all(bytes)?;
             stream.flush()?;
             return Ok(());

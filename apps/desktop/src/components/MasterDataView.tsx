@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { FolderTree, Tag, Scale, Plus, Search, Trash2 } from "lucide-react";
-import { api } from "../lib/api";
+import { FolderTree, Tag, Scale, Plus, Search } from "lucide-react";
+import { api, errorText } from "../lib/api";
+import { useToast } from "../lib/toast";
 
 interface MasterItem {
   id: string;
@@ -15,38 +16,15 @@ interface MasterDataViewProps {
 }
 
 export const MasterDataView: React.FC<MasterDataViewProps> = ({ initialTab = "categories" }) => {
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<"categories" | "brands" | "units">(initialTab);
   const [search, setSearch] = useState("");
 
-  const [categories, setCategories] = useState<MasterItem[]>([
-    { id: "1", name: "Beverages & Drinks", description: "Soft drinks, juices, mineral water" },
-    { id: "2", name: "Cooking Oil & Ghee", description: "Vegetable oil, banaspati ghee, mustard oil" },
-    { id: "3", name: "Pulses, Rice & Flour", description: "Basmati rice, chakki atta, daal chana" },
-    { id: "4", name: "Spices & Recipe Mixes", description: "Biryani masala, salt, red chilli, haldi" },
-    { id: "5", name: "Dairy & Bakery", description: "Milk packs, yogurt, bread, eggs, rusks" },
-    { id: "6", name: "Snacks & Confectionery", description: "Biscuits, chips, chocolates, sweets" },
-    { id: "7", name: "Household & Cleaning", description: "Soaps, detergents, dishwash, surface cleaners" },
-  ]);
+  const [categories, setCategories] = useState<MasterItem[]>([]);
 
-  const [brands, setBrands] = useState<MasterItem[]>([
-    { id: "1", name: "Shan Foods", description: "Recipe mixes, spices & pickles" },
-    { id: "2", name: "National Foods", description: "Spices, ketchups, desserts & jams" },
-    { id: "3", name: "Dalda", description: "Cooking oil & banaspati ghee" },
-    { id: "4", name: "Olper's", description: "Tetra milk, cream & dairy" },
-    { id: "5", name: "Tapal Tea", description: "Danedar, family mixture & green tea" },
-    { id: "6", name: "LU Biscuits", description: "Prince, Oreo, Candi, Zeera Plus" },
-    { id: "7", name: "English Biscuit Manufacturers", description: "Sooper, Gluco, Rio" },
-    { id: "8", name: "Unilever", description: "Knorr, Lifebuoy, Surf Excel, Lipton" },
-  ]);
+  const [brands, setBrands] = useState<MasterItem[]>([]);
 
-  const [units, setUnits] = useState<MasterItem[]>([
-    { id: "1", name: "Piece", code: "pc", decimals: 0, description: "Individual retail units" },
-    { id: "2", name: "Kilogram", code: "kg", decimals: 3, description: "Weight measurement in kg" },
-    { id: "3", name: "Liter", code: "ltr", decimals: 3, description: "Liquid volume measurement" },
-    { id: "4", name: "Pack", code: "pkt", decimals: 0, description: "Packets and sachets" },
-    { id: "5", name: "Box / Carton", code: "ctn", decimals: 0, description: "Wholesale outer cartons" },
-    { id: "6", name: "Dozen", code: "dzn", decimals: 0, description: "12 individual units" },
-  ]);
+  const [units, setUnits] = useState<MasterItem[]>([]);
 
   const loadData = async () => {
     try {
@@ -55,17 +33,11 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({ initialTab = "ca
         api.listBrands(),
         api.listUnits(),
       ]);
-      if (cats && cats.length > 0) {
-        setCategories(cats.map(c => ({ id: c.id, name: c.name, description: c.name_ur || undefined })));
-      }
-      if (brs && brs.length > 0) {
-        setBrands(brs.map(b => ({ id: b.id, name: b.name, description: b.name_ur || undefined })));
-      }
-      if (unts && unts.length > 0) {
-        setUnits(unts.map(u => ({ id: u.id, name: u.name, code: u.code, decimals: u.decimals_allowed })));
-      }
+      setCategories(cats.map(c => ({ id: c.id, name: c.name, description: c.name_ur || undefined })));
+      setBrands(brs.map(b => ({ id: b.id, name: b.name, description: b.name_ur || undefined })));
+      setUnits(unts.map(u => ({ id: u.id, name: u.name, code: u.code, decimals: u.decimals_allowed })));
     } catch (err) {
-      console.warn("Using default master data fallback:", err);
+      toast.error(errorText(err));
     }
   };
 
@@ -101,17 +73,8 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({ initialTab = "ca
         setUnits(prev => [...prev, { id: created.id, name: created.name, code: created.code, decimals: created.decimals_allowed }]);
       }
     } catch (err) {
-      console.error("Failed to create master data item via Tauri:", err);
-      const newItem: MasterItem = {
-        id: Date.now().toString(),
-        name: newNameEn.trim(),
-        description: newDescription.trim() || undefined,
-        code: newCode.trim() || undefined,
-        decimals: newDecimals,
-      };
-      if (activeTab === "categories") setCategories([...categories, newItem]);
-      if (activeTab === "brands") setBrands([...brands, newItem]);
-      if (activeTab === "units") setUnits([...units, newItem]);
+      toast.error(errorText(err));
+      return;
     }
 
     setNewNameEn("");
@@ -269,13 +232,14 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({ initialTab = "ca
             {activeTab !== "units" ? (
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Description / Remarks
+                  Name in Urdu
                 </label>
                 <input
                   type="text"
+                  dir="rtl"
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
-                  placeholder="Optional brief details"
+                  placeholder="اختیاری"
                   className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:border-emerald-500 focus:outline-none"
                 />
               </div>
@@ -335,14 +299,14 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({ initialTab = "ca
               <th className="px-5 py-3 w-12 text-center">#</th>
               <th className="px-5 py-3">Name</th>
               {activeTab !== "units" ? (
-                <th className="px-5 py-3">Description / Remarks</th>
+                <th className="px-5 py-3">Urdu name</th>
               ) : (
                 <>
                   <th className="px-5 py-3">Symbol / Code</th>
                   <th className="px-5 py-3">Decimal Places</th>
                 </>
               )}
-              <th className="px-5 py-3 text-right">Actions</th>
+              <th className="px-5 py-3 text-right" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
@@ -351,29 +315,14 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({ initialTab = "ca
                 <td className="px-5 py-3 font-mono text-slate-400 dark:text-slate-500 text-center">{idx + 1}</td>
                 <td className="px-5 py-3 font-semibold text-slate-900 dark:text-white">{item.name}</td>
                 {activeTab !== "units" ? (
-                  <td className="px-5 py-3 text-slate-600 dark:text-slate-400">{item.description || "—"}</td>
+                  <td className="px-5 py-3 text-slate-600 dark:text-slate-400" dir="rtl">{item.description || "—"}</td>
                 ) : (
                   <>
                     <td className="px-5 py-3 font-mono text-emerald-600 dark:text-emerald-400 font-bold">{item.code}</td>
                     <td className="px-5 py-3 text-slate-600 dark:text-slate-300 font-mono">{item.decimals}</td>
                   </>
                 )}
-                <td className="px-5 py-3 text-right">
-                  <button
-                    onClick={() => {
-                      if (activeTab === "categories")
-                        setCategories(categories.filter((c) => c.id !== item.id));
-                      if (activeTab === "brands")
-                        setBrands(brands.filter((b) => b.id !== item.id));
-                      if (activeTab === "units")
-                        setUnits(units.filter((u) => u.id !== item.id));
-                    }}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition"
-                    title="Delete item"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </td>
+                <td className="px-5 py-3 text-right" />
               </tr>
             ))}
             {getFilteredItems().length === 0 && (

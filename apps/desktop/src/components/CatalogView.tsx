@@ -1,17 +1,22 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  Download,
   Search,
   Plus,
   FileSpreadsheet,
   Barcode,
   Layers,
   Edit2,
-  Trash2,
+  DollarSign,
   Package,
 } from "lucide-react";
 import { ProductFormModal, ProductFormData } from "./ProductFormModal";
-import { api } from "../lib/api";
+import { api, errorText, formatPkr, ProductRow } from "../lib/api";
+import { BarcodeLabelsModal } from "./BarcodeLabelsModal";
+import { useToast } from "../lib/toast";
+import { useSession } from "../context/SessionContext";
+import { PRODUCT_COLUMNS, productRows, productsXlsx, reportCsv, saveFile } from "../lib/exporter";
 
 interface CatalogItem {
   id: string;
@@ -24,6 +29,9 @@ interface CatalogItem {
   barcode?: string;
   retailPrice: number;
   wholesalePrice?: number;
+  variantId: string;
+  stock: number;
+  row: ProductRow;
   packagingUnit?: {
     name: string;
     factor: number;
@@ -38,6 +46,9 @@ interface CatalogViewProps {
 
 export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) => {
   const { t } = useTranslation();
+  const toast = useToast();
+  const { can } = useSession();
+  const [labelsFor, setLabelsFor] = useState<ProductRow | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [search, setSearch] = useState("");
@@ -45,148 +56,30 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
   const [selectedBrand, setSelectedBrand] = useState("all");
 
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<ProductFormData | null>(null);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Initial demo retail stock data representing typical Pakistani FMCG inventory
-  const [products, setProducts] = useState<CatalogItem[]>([
-    {
-      id: "prod_1",
-      sku: "SHAN-BIR-50G",
-      name: "Shan Special Bombay Biryani Masala 50g",
-      nameUr: "Shan Bombay Biryani 50g",
-      category: "Spices & Recipe Mixes",
-      brand: "Shan Foods",
-      unit: "pc",
-      barcode: "8964000101112",
-      retailPrice: 140.0,
-      wholesalePrice: 125.0,
-      packagingUnit: {
-        name: "carton",
-        factor: 24,
-        barcode: "8964000101999",
-        price: 3200.0,
-      },
-    },
-    {
-      id: "prod_2",
-      sku: "DALDA-OIL-1L",
-      name: "Dalda Fortified Cooking Oil Pouch 1L",
-      nameUr: "Dalda Cooking Oil 1L",
-      category: "Cooking Oil & Ghee",
-      brand: "Dalda",
-      unit: "ltr",
-      barcode: "8964000200111",
-      retailPrice: 540.0,
-      wholesalePrice: 510.0,
-      packagingUnit: {
-        name: "carton",
-        factor: 12,
-        barcode: "8964000200888",
-        price: 6300.0,
-      },
-    },
-    {
-      id: "prod_3",
-      sku: "TAPAL-DAN-400G",
-      name: "Tapal Danedar Black Tea Box 400g",
-      nameUr: "Tapal Danedar Tea 400g",
-      category: "Tea & Beverages",
-      brand: "Tapal",
-      unit: "pc",
-      barcode: "8964000300222",
-      retailPrice: 680.0,
-      wholesalePrice: 640.0,
-    },
-    {
-      id: "prod_4",
-      sku: "LU-RIO-STR-12",
-      name: "LU Rio Strawberry Cream Biscuits Family Pack",
-      nameUr: "LU Rio Biscuits Family Pack",
-      category: "Snacks & Confectionery",
-      brand: "LU",
-      unit: "pc",
-      barcode: "8964000400333",
-      retailPrice: 40.0,
-      wholesalePrice: 35.0,
-      packagingUnit: {
-        name: "box",
-        factor: 12,
-        barcode: "8964000400999",
-        price: 450.0,
-      },
-    },
-    {
-      id: "prod_5",
-      sku: "NAT-SALT-800G",
-      name: "National Iodized Table Salt 800g",
-      nameUr: "National Table Salt 800g",
-      category: "Spices & Recipe Mixes",
-      brand: "National Foods",
-      unit: "pc",
-      barcode: "8964000500444",
-      retailPrice: 60.0,
-      wholesalePrice: 52.0,
-    },
-    {
-      id: "prod_6",
-      sku: "KRN-BAS-5KG",
-      name: "Super Basmati Kernel Rice 5KG Pack",
-      nameUr: "Super Basmati Kernel Rice 5kg",
-      category: "Rice, Pulses & Flour",
-      brand: "Al-Rehman Foods",
-      unit: "kg",
-      barcode: "8964000600555",
-      retailPrice: 1850.0,
-      wholesalePrice: 1720.0,
-    },
-  ]);
+  const [products, setProducts] = useState<CatalogItem[]>([]);
 
-  const [categories, setCategories] = useState<{ id: string; name: string }[]>([
-    { id: "cat_1", name: "Spices & Recipe Mixes" },
-    { id: "cat_2", name: "Cooking Oil & Ghee" },
-    { id: "cat_3", name: "Tea & Beverages" },
-    { id: "cat_4", name: "Snacks & Confectionery" },
-    { id: "cat_5", name: "Rice, Pulses & Flour" },
-  ]);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
 
-  const [brands, setBrands] = useState<{ id: string; name: string }[]>([
-    { id: "b_1", name: "Shan Foods" },
-    { id: "b_2", name: "National Foods" },
-    { id: "b_3", name: "Dalda" },
-    { id: "b_4", name: "Tapal" },
-    { id: "b_5", name: "LU" },
-    { id: "b_6", name: "Al-Rehman Foods" },
-  ]);
+  const [brands, setBrands] = useState<{ id: string; name: string }[]>([]);
 
-  const [units, setUnits] = useState<{ id: string; name: string; code: string }[]>([
-    { id: "u_1", name: "Piece", code: "pc" },
-    { id: "u_2", name: "Kilogram", code: "kg" },
-    { id: "u_3", name: "Liter", code: "ltr" },
-    { id: "u_4", name: "Meter", code: "m" },
-    { id: "u_5", name: "Dozen", code: "dozen" },
-    { id: "u_6", name: "Carton", code: "carton" },
-  ]);
+  const [units, setUnits] = useState<{ id: string; name: string; code: string }[]>([]);
 
   const loadData = async () => {
     try {
       const [dbProds, dbCats, dbBrands, dbUnits] = await Promise.all([
-        api.listProductsCatalog(200, 0),
+        api.searchProducts("", 500),
         api.listCategories(),
         api.listBrands(),
         api.listUnits(),
       ]);
 
-      if (dbCats && dbCats.length > 0) {
-        setCategories(dbCats.map((c) => ({ id: c.id, name: c.name })));
-      }
-      if (dbBrands && dbBrands.length > 0) {
-        setBrands(dbBrands.map((b) => ({ id: b.id, name: b.name })));
-      }
-      if (dbUnits && dbUnits.length > 0) {
-        setUnits(dbUnits.map((u) => ({ id: u.id, name: u.name, code: u.code })));
-      }
-
-      if (dbProds && dbProds.length > 0) {
+      setCategories(dbCats.map((c) => ({ id: c.id, name: c.name })));
+      setBrands(dbBrands.map((b) => ({ id: b.id, name: b.name })));
+      setUnits(dbUnits.map((u) => ({ id: u.id, name: u.name, code: u.code })));
+      {
         const mapped: CatalogItem[] = dbProds.map((p) => ({
           id: p.product_id,
           sku: p.sku,
@@ -198,11 +91,14 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
           barcode: p.barcode || "",
           retailPrice: (p.retail_price_paisa || 0) / 100,
           wholesalePrice: p.wholesale_price_paisa ? p.wholesale_price_paisa / 100 : undefined,
+          variantId: p.variant_id,
+          stock: p.on_hand_milli / 1000,
+          row: p,
         }));
         setProducts(mapped);
       }
     } catch (err) {
-      console.warn("Could not load catalog from SQLite, keeping default state:", err);
+      toast.error(errorText(err));
     }
   };
 
@@ -211,6 +107,28 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
     searchInputRef.current?.focus();
     loadData();
   }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isFormModalOpen || labelsFor) return;
+      if (document.activeElement === searchInputRef.current && e.key !== "Escape" && e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+
+      if (e.key === "F3") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+      if ((e.key === "F4" || (e.key === "Enter" && document.activeElement !== searchInputRef.current)) && selectedId) {
+        if (can("PriceEdit")) {
+          e.preventDefault();
+          editProduct(selectedId);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFormModalOpen, labelsFor, selectedId, can]);
 
   // Filtered product items
   const filteredProducts = useMemo(() => {
@@ -232,100 +150,73 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
     });
   }, [products, search, selectedCategory, selectedBrand]);
 
-  const handleSaveProduct = async (formData: ProductFormData) => {
-    const catName = categories.find((c) => c.id === formData.categoryId)?.name || "General";
-    const brandName = brands.find((b) => b.id === formData.brandId)?.name || "Generic";
-
+  /** Creates a product. Returns false (and keeps the form open) when the backend refuses. */
+  const handleSaveProduct = async (formData: ProductFormData): Promise<boolean> => {
     try {
-      const unitCode = formData.baseUnit || "pc";
-      const matchedUnit = units.find((u) => u.code.toLowerCase() === unitCode.toLowerCase()) || units[0];
-      const baseUnitId = matchedUnit?.id || "u-pc";
-
+      const baseUnit = units.find((u) => u.code.toLowerCase() === (formData.baseUnit || "pc").toLowerCase());
+      if (!baseUnit) throw new Error("Pick a unit for this product");
+      const packUnit = formData.hasPackagingUnit ? units.find((u) => u.code.toLowerCase() === formData.packUnit?.toLowerCase()) : undefined;
+      if (formData.hasPackagingUnit && !packUnit) throw new Error("Pick a unit for the pack (e.g. carton)");
       await api.createProduct({
         sku: formData.sku.trim(),
         name: formData.name.trim(),
         name_ur: formData.nameUr?.trim() || null,
         category_id: formData.categoryId || null,
         brand_id: formData.brandId || null,
-        base_unit_id: baseUnitId,
+        base_unit_id: baseUnit.id,
         barcode: formData.barcode?.trim() || null,
         retail_price_paisa: Math.round(formData.retailPrice * 100),
         wholesale_price_paisa: formData.wholesalePrice ? Math.round(formData.wholesalePrice * 100) : null,
-        packaging_units: formData.hasPackagingUnit && formData.packUnit ? [{
-          unit_id: units.find((u) => u.code.toLowerCase() === formData.packUnit?.toLowerCase())?.id || "u-ctn",
-          factor_to_base: (formData.packFactor || 24) * 1000,
-          barcode: formData.packBarcode?.trim() || null,
-          retail_price_paisa: formData.packRetailPrice ? Math.round(formData.packRetailPrice * 100) : null,
-        }] : [],
-      });
-
-      // Reload fresh from SQLite
+        reorder_level_milli: !formData.isService && formData.lowStockAlert ? Math.round(formData.lowStockAlert * 1000) : null,
+        packaging_units: packUnit
+          ? [{
+              unit_id: packUnit.id,
+              factor_to_base: (formData.packFactor || 24) * 1000,
+              barcode: formData.packBarcode?.trim() || null,
+              retail_price_paisa: formData.packRetailPrice ? Math.round(formData.packRetailPrice * 100) : null,
+            }]
+          : [],
+      }, !!formData.isService);
+      toast.success(`${formData.isService ? "Service" : "Product"} ${formData.name.trim()} saved`);
       await loadData();
+      return true;
     } catch (err) {
-      console.error("Failed to persist product to SQLite:", err);
-      // Fallback local memory state
-      if (formData.id) {
-        setProducts((prev) =>
-          prev.map((item) =>
-            item.id === formData.id
-              ? {
-                  ...item,
-                  sku: formData.sku,
-                  name: formData.name,
-                  nameUr: formData.nameUr,
-                  category: catName,
-                  brand: brandName,
-                  unit: formData.baseUnit,
-                  barcode: formData.barcode,
-                  retailPrice: formData.retailPrice,
-                  wholesalePrice: formData.wholesalePrice,
-                }
-              : item
-          )
-        );
-      } else {
-        const newItem: CatalogItem = {
-          id: `prod_${Date.now()}`,
-          sku: formData.sku,
-          name: formData.name,
-          nameUr: formData.nameUr,
-          category: catName,
-          brand: brandName,
-          unit: formData.baseUnit,
-          barcode: formData.barcode,
-          retailPrice: formData.retailPrice,
-          wholesalePrice: formData.wholesalePrice,
-        };
-        setProducts((prev) => [newItem, ...prev]);
-      }
+      toast.error(errorText(err));
+      return false;
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("Are you sure you want to delete this product?")) {
-      setProducts((prev) => prev.filter((p) => p.id !== id));
+  /** All products in the import layout, so the file can be edited and imported back. */
+  const exportProducts = async (fmt: "xlsx" | "csv") => {
+    try {
+      const rows = await productRows();
+      const data = fmt === "xlsx" ? await productsXlsx(rows) : reportCsv(PRODUCT_COLUMNS, rows);
+      const name = `Products ${new Date().toISOString().slice(0, 10)}.${fmt}`;
+      const where = await saveFile(name, data, fmt === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "text/csv");
+      toast.success(where ? `Saved: ${where}` : `${name} downloaded`);
+    } catch (e) {
+      toast.error(errorText(e));
     }
   };
 
-  const handleEdit = (item: CatalogItem) => {
-    setEditingProduct({
-      id: item.id,
-      sku: item.sku,
-      name: item.name,
-      nameUr: item.nameUr || "",
-      categoryId: categories.find((c) => c.name === item.category)?.id || categories[0]?.id,
-      brandId: brands.find((b) => b.name === item.brand)?.id || brands[0]?.id,
-      baseUnit: item.unit,
-      barcode: item.barcode || "",
-      retailPrice: item.retailPrice,
-      wholesalePrice: item.wholesalePrice || 0,
-      hasPackagingUnit: !!item.packagingUnit,
-      packUnit: item.packagingUnit?.name || "carton",
-      packFactor: item.packagingUnit?.factor || 24,
-      packBarcode: item.packagingUnit?.barcode || "",
-      packRetailPrice: item.packagingUnit?.price || 0,
-    });
+  const editProduct = (id: string) => {
+    setEditingProductId(id);
     setIsFormModalOpen(true);
+  };
+
+  /** Only the price can be changed quickly without opening full edit modal. */
+  const changePrice = async (item: CatalogItem) => {
+    const retail = await toast.prompt(`Retail price for ${item.name}`, `Price per ${item.unit} (Rs)`, { type: "number", initial: String(item.retailPrice) });
+    if (retail === null) return;
+    const wholesale = await toast.prompt(`Wholesale price for ${item.name}`, "Leave empty to keep it as it is (Rs)", { type: "number", initial: item.wholesalePrice ? String(item.wholesalePrice) : "" });
+    if (wholesale === null) return;
+    try {
+      await api.updatePrice(item.variantId, Math.round((parseFloat(retail) || 0) * 100), wholesale.trim() ? Math.round((parseFloat(wholesale) || 0) * 100) : null);
+      toast.success("Price updated");
+      loadData();
+    } catch (e) {
+      toast.error(errorText(e));
+    }
   };
 
   return (
@@ -340,7 +231,19 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
           <p className="text-xs text-slate-500 dark:text-slate-400">{t("catalog.subtitle") || "Manage SKUs, retail & wholesale prices, multi-tier packaging, and barcodes."}</p>
         </div>
 
-        <div className="flex items-center gap-3">
+        {can("PriceEdit") && <div className="flex items-center gap-3">
+          <button
+            onClick={() => exportProducts("xlsx")}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition"
+          >
+            <Download className="w-4 h-4 text-emerald-500" /> Export Excel
+          </button>
+          <button
+            onClick={() => exportProducts("csv")}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition"
+          >
+            <Download className="w-4 h-4 text-emerald-500" /> Export CSV
+          </button>
           <button
             onClick={onOpenBulkImport}
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition"
@@ -349,16 +252,13 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
             {t("catalog.bulk_import") || "Bulk Import"}
           </button>
           <button
-            onClick={() => {
-              setEditingProduct(null);
-              setIsFormModalOpen(true);
-            }}
+            onClick={() => setIsFormModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition"
           >
             <Plus className="w-4 h-4" />
             {t("catalog.add_product") || "+ Add Product"}
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* Search Bar & Filters */}
@@ -430,60 +330,92 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
                 </td>
               </tr>
             ) : (
-              filteredProducts.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                  <td className="py-3 px-4 font-mono text-emerald-600 dark:text-emerald-400 font-bold">{p.sku}</td>
-                  <td className="py-3 px-4">
-                    <div className="font-semibold text-slate-900 dark:text-white">{p.name}</div>
-                  </td>
-                  <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{p.category}</td>
-                  <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{p.brand}</td>
-                  <td className="py-3 px-4 font-mono">
-                    {p.barcode ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px]">
-                        <Barcode className="w-3 h-3 text-slate-400" />
-                        {p.barcode}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
-                    PKR {p.retailPrice.toFixed(2)}
-                  </td>
-                  <td className="py-3 px-4 text-right font-mono text-slate-500 dark:text-slate-400">
-                    {p.wholesalePrice ? `PKR ${p.wholesalePrice.toFixed(2)}` : "—"}
-                  </td>
-                  <td className="py-3 px-4">
-                    {p.packagingUnit ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-                        <Layers className="w-3 h-3" />
-                        {p.packagingUnit.name} (x{p.packagingUnit.factor})
-                      </span>
-                    ) : (
-                      <span className="text-slate-500 text-[11px] font-medium">{p.unit}</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button
-                        onClick={() => handleEdit(p)}
-                        className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
-                        title="Edit Product"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(p.id)}
-                        className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition"
-                        title="Delete Product"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+              filteredProducts.map((p) => {
+                const isSelected = p.id === selectedId;
+                return (
+                  <tr
+                    key={p.id}
+                    onClick={() => setSelectedId(p.id)}
+                    onDoubleClick={() => can("PriceEdit") && editProduct(p.id)}
+                    className={`cursor-pointer transition ${
+                      isSelected
+                        ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-100"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                    }`}
+                  >
+                    <td className="py-3 px-4 font-mono text-emerald-600 dark:text-emerald-400 font-bold">{p.sku}</td>
+                    <td className="py-3 px-4">
+                      <div className="font-semibold text-slate-900 dark:text-white">{p.name}</div>
+                    </td>
+                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{p.category}</td>
+                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{p.brand}</td>
+                    <td className="py-3 px-4 font-mono">
+                      {p.barcode ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px]">
+                          <Barcode className="w-3 h-3 text-slate-400" />
+                          {p.barcode}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
+                      {formatPkr(Math.round(p.retailPrice * 100))}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-slate-500 dark:text-slate-400">
+                      {p.wholesalePrice ? formatPkr(Math.round(p.wholesalePrice * 100)) : "—"}
+                    </td>
+                    <td className="py-3 px-4">
+                      {p.packagingUnit ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                          <Layers className="w-3 h-3" />
+                          {p.packagingUnit.name} (x{p.packagingUnit.factor})
+                        </span>
+                      ) : (
+                        <span className="text-slate-500 text-[11px] font-medium">{p.row.is_service ? "Service (no stock)" : `${p.stock} ${p.unit} in stock`}</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLabelsFor(p.row);
+                          }}
+                          className="px-2 py-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition flex items-center gap-1"
+                          title={p.barcode ? "Print barcode labels" : "Generate a barcode and print labels"}
+                        >
+                          <Barcode className="w-3.5 h-3.5" /> {p.barcode ? "Labels" : "Barcode"}
+                        </button>
+                        {can("PriceEdit") && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                editProduct(p.id);
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
+                              title="Edit product details (F4 / Enter)"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                changePrice(p);
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
+                              title="Change price"
+                            >
+                              <DollarSign className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -492,15 +424,33 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onOpenBulkImport }) =>
       {/* Footer Info / Row Count */}
       <div className="flex items-center justify-between text-xs text-slate-500">
         <span>Showing {filteredProducts.length} of {products.length} catalog items</span>
-        <span className="font-mono">Sub-100ms Index Active</span>
+        <span />
       </div>
+
+      <BarcodeLabelsModal
+        isOpen={!!labelsFor}
+        initial={labelsFor}
+        onClose={() => {
+          setLabelsFor(null);
+          loadData();
+        }}
+      />
 
       {/* Add / Edit Product Modal */}
       <ProductFormModal
         isOpen={isFormModalOpen}
-        onClose={() => setIsFormModalOpen(false)}
+        productId={editingProductId}
+        onClose={() => {
+          setIsFormModalOpen(false);
+          setEditingProductId(null);
+        }}
+        onSaved={() => {
+          setIsFormModalOpen(false);
+          setEditingProductId(null);
+          loadData();
+        }}
         onSave={handleSaveProduct}
-        initialData={editingProduct}
+        initialData={null}
         categories={categories}
         brands={brands}
         units={units}

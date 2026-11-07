@@ -1,379 +1,158 @@
-import React, { useState, useEffect } from "react";
-import { useTranslation } from "react-i18next";
-import { PaymentTender } from "../lib/contracts";
-import {
-  X,
-  CreditCard,
-  Banknote,
-  Smartphone,
-  BookOpen,
-  CheckCircle2,
-  AlertCircle,
-  Coins,
-} from "lucide-react";
+import { useMemo, useState } from "react";
+import { Banknote, CreditCard, Landmark, Loader2, Plus, Smartphone, Trash2, Wallet, X } from "lucide-react";
+import { CustomerSummary, formatPkr, PaymentTenderInput, TenderMethod } from "../lib/api";
 
-interface PaymentModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  grandTotalPaisa: number;
-  customerId: string | null;
-  customerName?: string;
-  onComplete: (tenders: PaymentTender[], changePaisa: number) => void;
-}
+const METHODS: { id: TenderMethod; label: string; icon: React.ReactNode; needsRef?: boolean }[] = [
+  { id: "cash", label: "Cash", icon: <Banknote className="w-4 h-4" /> },
+  { id: "card", label: "Card", icon: <CreditCard className="w-4 h-4" />, needsRef: true },
+  { id: "jazzcash", label: "JazzCash", icon: <Smartphone className="w-4 h-4" />, needsRef: true },
+  { id: "easypaisa", label: "Easypaisa", icon: <Smartphone className="w-4 h-4" />, needsRef: true },
+  { id: "raast", label: "Raast", icon: <Smartphone className="w-4 h-4" />, needsRef: true },
+  { id: "bank", label: "Bank transfer", icon: <Landmark className="w-4 h-4" />, needsRef: true },
+  { id: "cheque", label: "Cheque", icon: <Landmark className="w-4 h-4" />, needsRef: true },
+  { id: "credit", label: "Khata (credit)", icon: <Wallet className="w-4 h-4" /> },
+];
 
-export const PaymentModal: React.FC<PaymentModalProps> = ({
-  isOpen,
+const toPaisa = (s: string) => Math.round((parseFloat(s) || 0) * 100);
+
+/**
+ * Collects one or more tenders. Totals come from the backend quote; the backend
+ * checks them again when the sale is posted.
+ */
+export function PaymentModal({
+  totalPaisa,
+  customer,
+  busy,
+  onPay,
   onClose,
-  grandTotalPaisa,
-  customerId,
-  customerName,
-  onComplete,
-}) => {
-  const { t } = useTranslation();
+}: {
+  totalPaisa: number;
+  customer: CustomerSummary | null;
+  busy: boolean;
+  onPay: (tenders: PaymentTenderInput[]) => void;
+  onClose: () => void;
+}) {
+  const [tenders, setTenders] = useState<PaymentTenderInput[]>([]);
+  const [method, setMethod] = useState<TenderMethod>("cash");
+  const [amount, setAmount] = useState((totalPaisa / 100).toString());
+  const [reference, setReference] = useState("");
 
-  const [activeMethod, setActiveMethod] = useState<PaymentTender["method"]>("cash");
-  const [cashTenderedPaisa, setCashTenderedPaisa] = useState<number>(grandTotalPaisa);
-  const [digitalRef, setDigitalRef] = useState<string>("");
-  const [splitTenders, setSplitTenders] = useState<PaymentTender[]>([]);
-  const [isSplitMode, setIsSplitMode] = useState<boolean>(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const paid = tenders.reduce((s, t) => s + t.amount_paisa, 0);
+  const remaining = Math.max(0, totalPaisa - paid);
+  const cashPaid = tenders.filter((t) => t.method === "cash").reduce((s, t) => s + t.amount_paisa, 0);
+  const nonCash = paid - cashPaid;
+  const change = Math.max(0, paid - totalPaisa);
+  const creditAvailable = customer ? Math.max(0, customer.credit_limit_paisa - customer.balance_paisa) : 0;
 
-  useEffect(() => {
-    if (isOpen) {
-      setCashTenderedPaisa(grandTotalPaisa);
-      setDigitalRef("");
-      setSplitTenders([]);
-      setIsSplitMode(false);
-      setErrorMsg(null);
-    }
-  }, [isOpen, grandTotalPaisa]);
+  const problem = useMemo(() => {
+    if (paid < totalPaisa) return `Still to pay: ${formatPkr(remaining)}`;
+    if (nonCash > totalPaisa) return "Card, digital and khata can't be more than the bill. Only cash can give change.";
+    if (tenders.some((t) => t.method === "credit") && !customer) return "Pick a customer for a khata sale.";
+    return null;
+  }, [paid, totalPaisa, remaining, nonCash, tenders, customer]);
 
-  // Handle keyboard shortcuts (Escape to close, Enter to submit)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) return;
-      if (e.key === "Escape") {
-        onClose();
-      } else if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleFinishSale();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  });
-
-  if (!isOpen) return null;
-
-  const formatPkr = (paisa: number) => {
-    const rupees = (paisa / 100).toFixed(2);
-    return `PKR ${rupees}`;
+  const add = (m: TenderMethod = method, amt = toPaisa(amount)) => {
+    if (amt <= 0) return;
+    const def = METHODS.find((x) => x.id === m)!;
+    setTenders((t) => [...t, { method: m, amount_paisa: amt, reference: def.needsRef && reference.trim() ? reference.trim() : null }]);
+    setReference("");
+    const left = Math.max(0, totalPaisa - paid - amt);
+    setAmount(left ? (left / 100).toString() : "");
   };
 
-  const changePaisa = isSplitMode
-    ? Math.max(
-        0,
-        splitTenders.reduce((sum, t) => sum + t.amount_paisa, 0) +
-          (activeMethod === "cash" ? cashTenderedPaisa : 0) -
-          grandTotalPaisa
-      )
-    : activeMethod === "cash"
-    ? Math.max(0, cashTenderedPaisa - grandTotalPaisa)
-    : 0;
-
-  const addCashAmount = (amountPkr: number) => {
-    setCashTenderedPaisa((prev) => prev + amountPkr * 100);
-  };
-
-  const handleFinishSale = () => {
-    setErrorMsg(null);
-
-    if (activeMethod === "credit" && !customerId) {
-      setErrorMsg("Khata / Credit tender requires selecting an existing customer!");
-      return;
-    }
-
-    if (!isSplitMode) {
-      if (activeMethod === "cash") {
-        if (cashTenderedPaisa < grandTotalPaisa) {
-          setErrorMsg("Cash received cannot be less than Grand Total!");
-          return;
-        }
-        onComplete(
-          [
-            {
-              method: "cash",
-              amount_paisa: grandTotalPaisa,
-            },
-          ],
-          changePaisa
-        );
-      } else {
-        // Digital or card or credit: exact amount
-        onComplete(
-          [
-            {
-              method: activeMethod,
-              amount_paisa: grandTotalPaisa,
-              reference: digitalRef || undefined,
-            },
-          ],
-          0
-        );
-      }
-    } else {
-      // Split mode
-      const totalPaid = splitTenders.reduce((acc, cur) => acc + cur.amount_paisa, 0);
-      if (totalPaid < grandTotalPaisa) {
-        setErrorMsg(`Total paid (${formatPkr(totalPaid)}) is less than Grand Total (${formatPkr(grandTotalPaisa)})`);
-        return;
-      }
-      onComplete(splitTenders, changePaisa);
-    }
-  };
+  const quickCash = [totalPaisa, ...[500, 1000, 5000].map((n) => n * 100).filter((v) => v > totalPaisa)].slice(0, 4);
+  const sel = METHODS.find((m) => m.id === method)!;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950/60">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-              <Banknote className="w-5 h-5" />
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[92vh]">
+        <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">Payment</h2>
+            <p className="text-xs text-slate-500">Bill total {formatPkr(totalPaisa)}{customer ? ` · ${customer.name}` : ""}</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-5 grid md:grid-cols-2 gap-5 overflow-y-auto">
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {METHODS.map((m) => (
+                <button
+                  key={m.id}
+                  disabled={m.id === "credit" && !customer}
+                  onClick={() => setMethod(m.id)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold disabled:opacity-40 ${
+                    method === m.id ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300" : "border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  {m.icon} {m.label}
+                </button>
+              ))}
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                {t("pos.pay_btn") || "Checkout & Payment"}
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {customerName ? `${t("pos.customer") || "Customer"}: ${customerName}` : t("pos.walk_in_customer") || "Walk-in Customer"}
+            {method === "credit" && customer && (
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Balance {formatPkr(customer.balance_paisa)} · limit {formatPkr(customer.credit_limit_paisa)} · available {formatPkr(creditAvailable)}. Going over needs a Manager PIN.
               </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Grand Total Display */}
-        <div className="bg-slate-100/70 dark:bg-slate-950/60 px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <div>
-            <span className="text-xs uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-bold">
-              {t("pos.grand_total") || "Grand Total"}
-            </span>
-            <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              {formatPkr(grandTotalPaisa)}
-            </div>
-          </div>
-          {activeMethod === "cash" && (
-            <div className="text-right">
-              <span className="text-xs uppercase tracking-wider text-amber-600 dark:text-amber-400 font-bold">
-                {t("pos.change_due") || "Change Due"}
-              </span>
-              <div className="text-3xl font-extrabold text-amber-600 dark:text-amber-400 tracking-tight">
-                {formatPkr(changePaisa)}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Content Body */}
-        <div className="p-6 space-y-6">
-          {errorMsg && (
-            <div className="p-3 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-xl text-xs text-rose-600 dark:text-rose-300 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          {/* Payment Method Selector */}
-          <div>
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2 block">
-              Payment Method
-            </label>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              <button
-                type="button"
-                onClick={() => setActiveMethod("cash")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
-                  activeMethod === "cash"
-                    ? "bg-emerald-600/15 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500"
-                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
-                }`}
-              >
-                <Banknote className="w-5 h-5 mb-1.5" />
-                {t("pos.tender_cash") || "Cash"}
+            )}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                add();
+              }}
+              className="space-y-2"
+            >
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                Amount (Rs)
+                <input autoFocus inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-lg font-bold text-slate-900 dark:text-white" />
+              </label>
+              {sel.needsRef && (
+                <input placeholder="Reference / last 4 digits (optional)" value={reference} onChange={(e) => setReference(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white" />
+              )}
+              <button className="w-full py-2 rounded-xl bg-slate-800 dark:bg-slate-700 text-white text-sm font-semibold flex items-center justify-center gap-1">
+                <Plus className="w-4 h-4" /> Add {sel.label}
               </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveMethod("card")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
-                  activeMethod === "card"
-                    ? "bg-emerald-600/15 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500"
-                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
-                }`}
-              >
-                <CreditCard className="w-5 h-5 mb-1.5" />
-                {t("pos.tender_card") || "Card"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveMethod("jazzcash")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
-                  activeMethod === "jazzcash"
-                    ? "bg-rose-600/15 border-rose-500 text-rose-700 dark:text-rose-300 ring-1 ring-rose-500"
-                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
-                }`}
-              >
-                <Smartphone className="w-5 h-5 mb-1.5 text-rose-500" />
-                JazzCash
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveMethod("easypaisa")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
-                  activeMethod === "easypaisa"
-                    ? "bg-emerald-600/15 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500"
-                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
-                }`}
-              >
-                <Smartphone className="w-5 h-5 mb-1.5 text-emerald-500" />
-                EasyPaisa
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveMethod("raast")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
-                  activeMethod === "raast"
-                    ? "bg-sky-600/15 border-sky-500 text-sky-700 dark:text-sky-300 ring-1 ring-sky-500"
-                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
-                }`}
-              >
-                <Coins className="w-5 h-5 mb-1.5 text-sky-500" />
-                Raast P2M
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveMethod("credit")}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition ${
-                  activeMethod === "credit"
-                    ? "bg-amber-600/15 border-amber-500 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500"
-                    : "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
-                }`}
-              >
-                <BookOpen className="w-5 h-5 mb-1.5 text-amber-500" />
-                Khata (Credit)
-              </button>
-            </div>
-          </div>
-
-          {/* Dynamic input per tender method */}
-          {activeMethod === "cash" && (
-            <div className="space-y-4 bg-slate-50 dark:bg-slate-950/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {t("pos.amount_received") || "Amount Received"} (PKR):
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={(cashTenderedPaisa / 100).toFixed(0)}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value) || 0;
-                      setCashTenderedPaisa(Math.round(val * 100));
-                    }}
-                    className="w-40 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-right text-lg font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 shadow-xs"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setCashTenderedPaisa(grandTotalPaisa)}
-                    className="px-3 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 rounded-lg border border-slate-300 dark:border-slate-700 transition"
-                  >
-                    {t("pos.exact_amount") || "Exact"}
-                  </button>
-                </div>
-              </div>
-
-              {/* Quick PKR Cash Bills */}
-              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800/60">
-                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Quick Cash Bills:</span>
-                {[100, 500, 1000, 5000].map((bill) => (
-                  <button
-                    key={bill}
-                    type="button"
-                    onClick={() => addCashAmount(bill)}
-                    className="px-3 py-1.5 bg-white dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-emerald-600/30 hover:border-emerald-500 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-700 transition shadow-2xs"
-                  >
-                    +{bill} PKR
+            </form>
+            {method === "cash" && (
+              <div className="flex flex-wrap gap-2">
+                {quickCash.map((v) => (
+                  <button key={v} onClick={() => add("cash", v)} className="px-3 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 text-xs font-bold">
+                    {v === totalPaisa ? "Exact " : ""}{formatPkr(v)}
                   </button>
                 ))}
               </div>
+            )}
+          </div>
+
+          <div className="flex flex-col">
+            <h3 className="text-xs font-semibold text-slate-500 mb-2">Payments added</h3>
+            <div className="flex-1 space-y-1.5 min-h-[80px]">
+              {tenders.length === 0 && <p className="text-xs text-slate-400">Nothing yet. Add a payment on the left.</p>}
+              {tenders.map((t, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-sm">
+                  <span className="font-semibold capitalize">{METHODS.find((m) => m.id === t.method)?.label}{t.reference ? <span className="text-xs text-slate-400"> · {t.reference}</span> : null}</span>
+                  <span className="flex items-center gap-2">
+                    {formatPkr(t.amount_paisa)}
+                    <button aria-label="Remove payment" onClick={() => setTenders((x) => x.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4 text-rose-500" /></button>
+                  </span>
+                </div>
+              ))}
             </div>
-          )}
-
-          {activeMethod !== "cash" && activeMethod !== "credit" && (
-            <div className="space-y-2 bg-slate-50 dark:bg-slate-950/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
-                Transaction / Slip Reference (Optional):
-              </label>
-              <input
-                type="text"
-                value={digitalRef}
-                onChange={(e) => setDigitalRef(e.target.value)}
-                placeholder="e.g. TID-982341, Last 4 digits, or Approval Code"
-                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 shadow-xs"
-              />
+            <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1 text-sm">
+              <div className="flex justify-between"><span>Paid</span><b>{formatPkr(paid)}</b></div>
+              <div className="flex justify-between text-lg"><span>Change</span><b className="text-emerald-600">{formatPkr(change)}</b></div>
             </div>
-          )}
-
-          {activeMethod === "credit" && (
-            <div className="p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl space-y-2">
-              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 font-semibold text-xs">
-                <BookOpen className="w-4 h-4" />
-                <span>Customer Khata Posting</span>
-              </div>
-              <p className="text-xs text-amber-800 dark:text-amber-200/80">
-                {customerId
-                  ? `This entire sale amount (${formatPkr(
-                      grandTotalPaisa
-                    )}) will be added to ${customerName}'s ledger as an outstanding receivable.`
-                  : "Please select a registered customer with a Khata account before continuing."}
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Footer Actions */}
-        <div className="px-6 py-4 bg-slate-50 dark:bg-slate-950/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-700 transition"
-          >
-            {t("pos.cancel") || "Cancel"} (Esc)
-          </button>
-
-          <button
-            type="button"
-            onClick={handleFinishSale}
-            className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl shadow-lg transition"
-          >
-            <CheckCircle2 className="w-5 h-5" />
-            <span>Complete Sale & Print (Enter)</span>
-          </button>
+            {problem && <p className="text-xs font-semibold text-amber-600 mt-2">{problem}</p>}
+            <button
+              disabled={!!problem || busy}
+              onClick={() => onPay(tenders)}
+              className="mt-3 w-full py-3 rounded-xl bg-emerald-600 disabled:opacity-40 text-white font-bold flex items-center justify-center gap-2"
+            >
+              {busy && <Loader2 className="w-4 h-4 animate-spin" />} Complete sale
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
-};
+}

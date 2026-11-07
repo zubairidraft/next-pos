@@ -1,0 +1,16 @@
+{
+  "name": "nextpos-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Next POS Mobile (Android). The screens live in ../desktop/src/mobile.",
+  "scripts": {
+    "tauri": "tauri",
+    "android:init": "tauri android init",
+    "android:icons": "tauri icon ../desktop/src-tauri/icons/icon.png",
+    "android:dev": "tauri android dev",
+    "android:apk": "tauri android build --apk"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

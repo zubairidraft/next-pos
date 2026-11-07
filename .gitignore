@@ -5,3 +5,7 @@ dist/
 *.key
 .nextpos_security/
 .nextpos_signing/
+dist-mobile/
+_backup*/
+_backups/
+pos_browser_test_mode.zip

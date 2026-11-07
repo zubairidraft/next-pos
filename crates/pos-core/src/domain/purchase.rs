@@ -18,6 +18,8 @@ pub struct PurchaseInvoice {
     pub total_paisa: i64,
     pub lines: Vec<PurchaseInvoiceLine>,
     pub created_at: String,
+    #[serde(default)]
+    pub revision: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +166,101 @@ impl PurchaseRepo {
         ((current_val + inbound_val) * 1000) / total_qty
     }
 
+    /// Helper to insert purchase lines, post stock movements, and update average cost.
+    /// Shared between `post_purchase` and `edit_purchase`.
+    pub fn build_and_insert_purchase_lines(
+        tx: &Connection,
+        purchase_id: &str,
+        doc_no: &str,
+        lines_input: &[CreatePurchaseLineInput],
+        allocations: &[(i64, i64)],
+        user_id: Option<&str>,
+        movement_type: &str,
+    ) -> Result<Vec<PurchaseInvoiceLine>> {
+        let mut lines = Vec::with_capacity(lines_input.len());
+        for (idx, line_input) in lines_input.iter().enumerate() {
+            let line_id = Ulid::new().to_string();
+            let (effective_line_total, effective_unit_cost) = allocations[idx];
+            let base_line_total = (line_input.received_qty_milli * line_input.unit_cost_paisa) / 1000;
+
+            tx.execute(
+                "INSERT INTO purchase_lines (id, purchase_id, variant_id, unit_id, received_qty_milli, unit_cost_paisa, total_paisa)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    line_id,
+                    purchase_id,
+                    line_input.variant_id,
+                    line_input.unit_id,
+                    line_input.received_qty_milli,
+                    effective_unit_cost,
+                    effective_line_total,
+                ],
+            )
+            .map_err(|e| PosError::Db(format!("Failed to insert purchase line: {}", e)))?;
+
+            // Fetch current on hand and avg cost
+            let current_balance = InventoryRepo::get_balance(tx, &line_input.variant_id)?;
+            let (cur_on_hand, cur_avg_cost) = match current_balance {
+                Some(b) => (b.on_hand_milli, b.avg_cost_paisa),
+                None => (0, 0),
+            };
+
+            let new_avg_cost = Self::calculate_new_avg_cost(
+                cur_on_hand,
+                cur_avg_cost,
+                line_input.received_qty_milli,
+                effective_unit_cost,
+            );
+
+            // Record inbound stock movement
+            InventoryRepo::record_movement(
+                tx,
+                RecordMovementParams {
+                    variant_id: line_input.variant_id.clone(),
+                    qty_signed_milli: line_input.received_qty_milli,
+                    movement_type: movement_type.to_string(),
+                    source_doc: doc_no.to_string(),
+                    source_line: Some(line_id.clone()),
+                    unit_cost_paisa: effective_unit_cost,
+                    batch_id: None,
+                    serial_id: None,
+                    user_id: user_id.map(str::to_string),
+                },
+            )?;
+
+            // Update average cost in inventory_balances
+            InventoryRepo::update_avg_cost(tx, &line_input.variant_id, new_avg_cost)?;
+
+            // Fetch product and unit meta for return struct
+            let (p_name, sku, unit_code): (String, String, String) = tx
+                .query_row(
+                    "SELECT p.name, p.sku, u.code
+                     FROM product_variants pv
+                     JOIN products p ON pv.product_id = p.id
+                     JOIN units u ON ?1 = u.id
+                     WHERE pv.id = ?2",
+                    params![line_input.unit_id, line_input.variant_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap_or_else(|_| ("Unknown Product".to_string(), "".to_string(), "PCS".to_string()));
+
+            lines.push(PurchaseInvoiceLine {
+                id: line_id,
+                purchase_id: purchase_id.to_string(),
+                variant_id: line_input.variant_id.clone(),
+                product_name: p_name,
+                sku,
+                unit_id: line_input.unit_id.clone(),
+                unit_code,
+                received_qty_milli: line_input.received_qty_milli,
+                unit_cost_paisa: line_input.unit_cost_paisa,
+                total_paisa: base_line_total,
+                effective_unit_cost_paisa: effective_unit_cost,
+            });
+        }
+        Ok(lines)
+    }
+
     /// Records and posts a complete purchase invoice atomically.
     pub fn post_purchase(conn: &mut Connection, input: CreatePurchaseInput) -> Result<PurchaseInvoice> {
         if input.lines.is_empty() {
@@ -200,8 +297,8 @@ impl PurchaseRepo {
 
         // 1. Insert purchase invoice
         tx.execute(
-            "INSERT INTO purchases (id, doc_no, vendor_id, vendor_invoice_no, status, freight_paisa, total_paisa, created_at)
-             VALUES (?1, ?2, ?3, ?4, 'received', ?5, ?6, ?7)",
+            "INSERT INTO purchases (id, doc_no, vendor_id, vendor_invoice_no, status, freight_paisa, total_paisa, created_at, user_id)
+             VALUES (?1, ?2, ?3, ?4, 'received', ?5, ?6, ?7, ?8)",
             params![
                 purchase_id,
                 doc_no,
@@ -210,93 +307,21 @@ impl PurchaseRepo {
                 input.freight_paisa,
                 total_invoice_paisa,
                 now,
+                input.user_id,
             ],
         )
         .map_err(|e| PosError::Db(format!("Failed to insert purchase: {}", e)))?;
 
-        let mut lines = Vec::new();
-
         // 2. Insert lines, stock movements, and update WAC
-        for (idx, line_input) in input.lines.iter().enumerate() {
-            let line_id = Ulid::new().to_string();
-            let (effective_line_total, effective_unit_cost) = allocations[idx];
-            let base_line_total = (line_input.received_qty_milli * line_input.unit_cost_paisa) / 1000;
-
-            tx.execute(
-                "INSERT INTO purchase_lines (id, purchase_id, variant_id, unit_id, received_qty_milli, unit_cost_paisa, total_paisa)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    line_id,
-                    purchase_id,
-                    line_input.variant_id,
-                    line_input.unit_id,
-                    line_input.received_qty_milli,
-                    effective_unit_cost,
-                    effective_line_total,
-                ],
-            )
-            .map_err(|e| PosError::Db(format!("Failed to insert purchase line: {}", e)))?;
-
-            // Fetch current on hand and avg cost
-            let current_balance = InventoryRepo::get_balance(&tx, &line_input.variant_id)?;
-            let (cur_on_hand, cur_avg_cost) = match current_balance {
-                Some(b) => (b.on_hand_milli, b.avg_cost_paisa),
-                None => (0, 0),
-            };
-
-            let new_avg_cost = Self::calculate_new_avg_cost(
-                cur_on_hand,
-                cur_avg_cost,
-                line_input.received_qty_milli,
-                effective_unit_cost,
-            );
-
-            // Record inbound stock movement
-            InventoryRepo::record_movement(
-                &tx,
-                RecordMovementParams {
-                    variant_id: line_input.variant_id.clone(),
-                    qty_signed_milli: line_input.received_qty_milli,
-                    movement_type: "purchase".to_string(),
-                    source_doc: doc_no.clone(),
-                    source_line: Some(line_id.clone()),
-                    unit_cost_paisa: effective_unit_cost,
-                    batch_id: None,
-                    serial_id: None,
-                    user_id: input.user_id.clone(),
-                },
-            )?;
-
-            // Update average cost in inventory_balances
-            InventoryRepo::update_avg_cost(&tx, &line_input.variant_id, new_avg_cost)?;
-
-            // Fetch product and unit meta for return struct
-            let (p_name, sku, unit_code): (String, String, String) = tx
-                .query_row(
-                    "SELECT p.name, p.sku, u.code
-                     FROM product_variants pv
-                     JOIN products p ON pv.product_id = p.id
-                     JOIN units u ON ?1 = u.id
-                     WHERE pv.id = ?2",
-                    params![line_input.unit_id, line_input.variant_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .unwrap_or_else(|_| ("Unknown Product".to_string(), "".to_string(), "PCS".to_string()));
-
-            lines.push(PurchaseInvoiceLine {
-                id: line_id,
-                purchase_id: purchase_id.clone(),
-                variant_id: line_input.variant_id.clone(),
-                product_name: p_name,
-                sku,
-                unit_id: line_input.unit_id.clone(),
-                unit_code,
-                received_qty_milli: line_input.received_qty_milli,
-                unit_cost_paisa: line_input.unit_cost_paisa,
-                total_paisa: base_line_total,
-                effective_unit_cost_paisa: effective_unit_cost,
-            });
-        }
+        let lines = Self::build_and_insert_purchase_lines(
+            &tx,
+            &purchase_id,
+            &doc_no,
+            &input.lines,
+            &allocations,
+            input.user_id.as_deref(),
+            "purchase",
+        )?;
 
         // 3. Post vendor Khata party_ledger entry (Credit increases accounts payable)
         let ledger_id = Ulid::new().to_string();
@@ -334,7 +359,7 @@ impl PurchaseRepo {
 
         crate::domain::audit::AuditRepo::write(
             &tx,
-            None,
+            input.user_id.as_deref(),
             "purchase_posted",
             "purchase",
             Some(&purchase_id),
@@ -356,6 +381,7 @@ impl PurchaseRepo {
             total_paisa: total_invoice_paisa,
             lines,
             created_at: now,
+            revision: 0,
         })
     }
 
@@ -364,7 +390,7 @@ impl PurchaseRepo {
         let mut stmt = conn
             .prepare(
                 "SELECT p.id, p.doc_no, p.vendor_id, pt.name as vendor_name,
-                        p.vendor_invoice_no, p.status, p.freight_paisa, p.total_paisa, p.created_at
+                        p.vendor_invoice_no, p.status, p.freight_paisa, p.total_paisa, p.created_at, p.revision
                  FROM purchases p
                  JOIN parties pt ON p.vendor_id = pt.id
                  ORDER BY p.created_at DESC, p.doc_no DESC
@@ -385,6 +411,7 @@ impl PurchaseRepo {
                     total_paisa: row.get(7)?,
                     lines: Vec::new(),
                     created_at: row.get(8)?,
+                    revision: row.get::<_, Option<i64>>(9)?.unwrap_or(0),
                 })
             })
             .map_err(|e| PosError::Db(e.to_string()))?;

@@ -1,7 +1,7 @@
 use crate::error::{PosError, Result};
 use crate::money::Qty;
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
@@ -72,6 +72,10 @@ pub struct PriceList {
     pub created_at: DateTime<Utc>,
 }
 
+fn default_active() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductSearchResult {
     pub product_id: String,
@@ -91,6 +95,75 @@ pub struct ProductSearchResult {
     pub tax_rate_bp: i32,
     pub tax_inclusive: bool,
     pub stock_on_hand_milli: i64,
+    #[serde(default = "default_active")]
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackagingUnitDetail {
+    pub unit_id: String,
+    pub unit_code: String,
+    pub unit_name: String,
+    pub factor_to_base: i64,
+    pub barcode: Option<String>,
+    pub retail_price_paisa: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductDetail {
+    pub product_id: String,
+    pub variant_id: String,
+    pub sku: String,
+    pub name: String,
+    pub name_ur: Option<String>,
+    pub category_id: Option<String>,
+    pub category_name: Option<String>,
+    pub brand_id: Option<String>,
+    pub brand_name: Option<String>,
+    pub base_unit_id: String,
+    pub base_unit_code: String,
+    pub base_unit_name: String,
+    pub barcode: Option<String>,
+    pub retail_price_paisa: i64,
+    pub wholesale_price_paisa: Option<i64>,
+    pub packaging_unit: Option<PackagingUnitDetail>,
+    pub tax_rate_id: Option<String>,
+    pub reorder_level_milli: i64,
+    pub is_service: bool,
+    pub track_mode: String,
+    pub active: bool,
+    pub on_hand_milli: i64,
+    pub has_movements: bool,
+    pub has_sales: bool,
+    pub has_purchases: bool,
+    pub serial_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdatePackagingUnit {
+    pub unit_id: String,
+    pub factor_to_base: i64,
+    pub barcode: Option<String>,
+    pub retail_price_paisa: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateProductInput {
+    pub product_id: String,
+    pub sku: String,
+    pub name: String,
+    pub name_ur: Option<String>,
+    pub category_id: Option<String>,
+    pub brand_id: Option<String>,
+    pub base_unit_id: String,
+    pub barcode: Option<String>,
+    pub retail_price_paisa: i64,
+    pub wholesale_price_paisa: Option<i64>,
+    pub tax_rate_id: Option<String>,
+    pub reorder_level_milli: i64,
+    pub is_service: bool,
+    pub active: bool,
+    pub packaging_unit: Option<UpdatePackagingUnit>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +215,7 @@ impl CatalogRepo {
             tax_rate_bp: row.get::<_, Option<i32>>(14)?.unwrap_or(0),
             tax_inclusive: row.get::<_, Option<i32>>(15)?.unwrap_or(1) == 1,
             stock_on_hand_milli: row.get::<_, Option<i64>>(16)?.unwrap_or(0),
+            active: row.get::<_, Option<i64>>(17)?.unwrap_or(1) == 1,
         })
     }
 
@@ -163,7 +237,8 @@ impl CatalogRepo {
             (SELECT price_paisa FROM prices WHERE variant_id = pv.id AND price_list_id = 'wholesale' LIMIT 1) as wholesale_price_paisa,
             COALESCE(tr.rate_bp, 0) as tax_rate_bp,
             COALESCE(tr.inclusive, 1) as tax_inclusive,
-            COALESCE((SELECT on_hand_milli FROM inventory_balances WHERE variant_id = pv.id LIMIT 1), 0) as stock_on_hand_milli
+            COALESCE((SELECT on_hand_milli FROM inventory_balances WHERE variant_id = pv.id LIMIT 1), 0) as stock_on_hand_milli,
+            p.active
         FROM products p
         JOIN product_variants pv ON pv.product_id = p.id AND pv.is_default = 1
         LEFT JOIN categories c ON c.id = p.category_id
@@ -318,6 +393,169 @@ impl CatalogRepo {
             Some(res) => Ok(Some(res.map_err(|e| PosError::Db(e.to_string()))?)),
             None => Ok(None),
         }
+    }
+
+    /// Fetches full product details including all editable fields and usage statistics.
+    pub fn get_detail(conn: &Connection, product_id: &str) -> Result<Option<ProductDetail>> {
+        let sql = "
+            SELECT 
+                p.id,
+                pv.id,
+                p.sku,
+                p.name,
+                p.name_ur,
+                p.category_id,
+                c.name as category_name,
+                p.brand_id,
+                b.name as brand_name,
+                p.base_unit_id,
+                u.code as base_unit_code,
+                u.name as base_unit_name,
+                (SELECT value FROM barcodes WHERE variant_id = pv.id AND kind = 'manufacturer' LIMIT 1) as barcode,
+                COALESCE((SELECT price_paisa FROM prices WHERE variant_id = pv.id AND unit_id = p.base_unit_id AND price_list_id = 'retail' LIMIT 1), 0) as retail_price_paisa,
+                (SELECT price_paisa FROM prices WHERE variant_id = pv.id AND unit_id = p.base_unit_id AND price_list_id = 'wholesale' LIMIT 1) as wholesale_price_paisa,
+                p.tax_rate_id,
+                p.reorder_level_milli,
+                p.is_service,
+                p.track_mode,
+                p.active,
+                COALESCE((SELECT on_hand_milli FROM inventory_balances WHERE variant_id = pv.id LIMIT 1), 0) as on_hand_milli,
+                COALESCE((SELECT COUNT(*) FROM stock_movements WHERE variant_id = pv.id), 0) as movement_count,
+                COALESCE((SELECT COUNT(*) FROM sale_lines WHERE variant_id = pv.id), 0) as sale_count,
+                COALESCE((SELECT COUNT(*) FROM purchase_lines WHERE variant_id = pv.id), 0) as purchase_count,
+                COALESCE((SELECT COUNT(*) FROM product_serials WHERE variant_id = pv.id), 0) as serial_count
+            FROM products p
+            JOIN product_variants pv ON pv.product_id = p.id AND pv.is_default = 1
+            LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN brands b ON b.id = p.brand_id
+            LEFT JOIN units u ON u.id = p.base_unit_id
+            WHERE p.id = ?1 LIMIT 1
+        ";
+
+        let mut stmt = conn.prepare(sql).map_err(|e| PosError::Db(e.to_string()))?;
+        let row = stmt
+            .query_row(params![product_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, Option<String>>(7)?,
+                    r.get::<_, Option<String>>(8)?,
+                    r.get::<_, String>(9)?,
+                    r.get::<_, String>(10)?,
+                    r.get::<_, String>(11)?,
+                    r.get::<_, Option<String>>(12)?,
+                    r.get::<_, i64>(13)?,
+                    r.get::<_, Option<i64>>(14)?,
+                    r.get::<_, Option<String>>(15)?,
+                    r.get::<_, i64>(16)?,
+                    r.get::<_, i64>(17)? != 0,
+                    r.get::<_, String>(18)?,
+                    r.get::<_, i64>(19)? != 0,
+                    r.get::<_, i64>(20)?,
+                    r.get::<_, i64>(21)? > 0,
+                    r.get::<_, i64>(22)? > 0,
+                    r.get::<_, i64>(23)? > 0,
+                    r.get::<_, i64>(24)?,
+                ))
+            })
+            .optional()?;
+
+        let (
+            product_id,
+            variant_id,
+            sku,
+            name,
+            name_ur,
+            category_id,
+            category_name,
+            brand_id,
+            brand_name,
+            base_unit_id,
+            base_unit_code,
+            base_unit_name,
+            barcode,
+            retail_price_paisa,
+            wholesale_price_paisa,
+            tax_rate_id,
+            reorder_level_milli,
+            is_service,
+            track_mode,
+            active,
+            on_hand_milli,
+            has_movements,
+            has_sales,
+            has_purchases,
+            serial_count,
+        ) = match row {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+
+        // Query packaging unit
+        let pkg_sql = "
+            SELECT vu.unit_id, u.code, u.name, vu.factor_to_base, vu.barcode,
+                   (SELECT price_paisa FROM prices WHERE variant_id = vu.variant_id AND unit_id = vu.unit_id AND price_list_id = 'retail' LIMIT 1) as price_paisa
+            FROM variant_units vu
+            JOIN units u ON u.id = vu.unit_id
+            WHERE vu.variant_id = ?1 AND vu.factor_to_base != 1000
+            LIMIT 1
+        ";
+        let mut pkg_stmt = conn.prepare(pkg_sql).map_err(|e| PosError::Db(e.to_string()))?;
+        let packaging_unit = pkg_stmt
+            .query_row(params![variant_id], |r| {
+                Ok(PackagingUnitDetail {
+                    unit_id: r.get(0)?,
+                    unit_code: r.get(1)?,
+                    unit_name: r.get(2)?,
+                    factor_to_base: r.get(3)?,
+                    barcode: r.get(4)?,
+                    retail_price_paisa: r.get(5)?,
+                })
+            })
+            .optional()?;
+
+        let final_barcode = barcode.or_else(|| {
+            conn.query_row(
+                "SELECT value FROM barcodes WHERE variant_id = ?1 LIMIT 1",
+                params![variant_id],
+                |r| r.get(0),
+            )
+            .ok()
+        });
+
+        Ok(Some(ProductDetail {
+            product_id,
+            variant_id,
+            sku,
+            name,
+            name_ur,
+            category_id,
+            category_name,
+            brand_id,
+            brand_name,
+            base_unit_id,
+            base_unit_code,
+            base_unit_name,
+            barcode: final_barcode,
+            retail_price_paisa,
+            wholesale_price_paisa,
+            packaging_unit,
+            tax_rate_id,
+            reorder_level_milli,
+            is_service,
+            track_mode,
+            active,
+            on_hand_milli,
+            has_movements,
+            has_sales,
+            has_purchases,
+            serial_count,
+        }))
     }
 
     /// Fast lookup by exact barcode (sub-5ms)

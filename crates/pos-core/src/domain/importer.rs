@@ -20,6 +20,22 @@ pub struct ImportRow {
     pub barcode: Option<String>,
     pub retail_price_paisa: i64,
     pub wholesale_price_paisa: Option<i64>,
+    /// Low stock alert level (milli-units). 0 = none.
+    #[serde(default)]
+    pub reorder_level_milli: i64,
+    /// A service (no stock).
+    #[serde(default)]
+    pub is_service: bool,
+}
+
+/// Low stock alert text ("5", "2.5") → milli-units.
+fn parse_qty_milli(s: &str) -> i64 {
+    let v: f64 = s.trim().replace(',', "").parse().unwrap_or(0.0);
+    if v.is_finite() && v > 0.0 { (v * 1000.0).round() as i64 } else { 0 }
+}
+
+fn is_service_text(s: &str) -> bool {
+    matches!(s.trim().to_lowercase().as_str(), "service" | "services" | "srv")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,7 +166,7 @@ impl CatalogImporter {
                         "INSERT INTO products (
                             id, sku, name, name_ur, category_id, brand_id, base_unit_id,
                             track_mode, has_variants, reorder_level_milli, active, created_at, updated_at
-                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'none', 0, 0, 1, ?8, ?8)",
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'none', 0, ?9, 1, ?8, ?8)",
                     )
                     .map_err(|e| PosError::Db(e.to_string()))?;
 
@@ -293,9 +309,14 @@ impl CatalogImporter {
                             category_id,
                             brand_id,
                             unit_id,
-                            now_str
+                            now_str,
+                            if row.is_service { 0 } else { row.reorder_level_milli.max(0) }
                         ])
                         .map_err(|e| PosError::Db(format!("Failed to insert product row: {}", e)))?;
+                    if row.is_service {
+                        tx.execute("UPDATE products SET is_service = 1 WHERE id = ?1", params![product_id])
+                            .map_err(|e| PosError::Db(format!("Failed to mark service: {}", e)))?;
+                    }
 
                     // 2. Insert variant
                     insert_variant
@@ -388,6 +409,8 @@ impl CatalogImporter {
         let mut col_barcode = None;
         let mut col_retail = None;
         let mut col_wholesale = None;
+        let mut col_reorder = None;
+        let mut col_type = None;
 
         for (idx, header) in headers.iter().enumerate() {
             let h = header.trim().to_lowercase();
@@ -401,6 +424,8 @@ impl CatalogImporter {
                 "barcode" | "upc" | "ean" => col_barcode = Some(idx),
                 "retail_price" | "price" | "mrp" | "sale_price" => col_retail = Some(idx),
                 "wholesale_price" | "cost" | "trade_price" => col_wholesale = Some(idx),
+                "low_stock_alert" | "reorder_level" | "min_stock" => col_reorder = Some(idx),
+                "type" | "item_type" => col_type = Some(idx),
                 _ => {}
             }
         }
@@ -429,6 +454,9 @@ impl CatalogImporter {
                 .filter(|s| !s.is_empty())
                 .map(parse_price_to_paisa);
 
+            let reorder_level_milli = col_reorder.and_then(|i| record.get(i)).map(parse_qty_milli).unwrap_or(0);
+            let is_service = col_type.and_then(|i| record.get(i)).map(is_service_text).unwrap_or(false);
+
             rows.push(ImportRow {
                 sku,
                 name,
@@ -439,6 +467,8 @@ impl CatalogImporter {
                 barcode,
                 retail_price_paisa,
                 wholesale_price_paisa,
+                reorder_level_milli,
+                is_service,
             });
         }
 
@@ -481,6 +511,8 @@ impl CatalogImporter {
                         if let Some(cell) = row.get(idx) {
                             let text = match cell {
                                 Data::String(s) => s.trim().to_string(),
+                                // Whole numbers (barcodes, SKUs, quantities) without ".00".
+                                Data::Float(f) if f.fract() == 0.0 && f.abs() < 1e15 => format!("{}", *f as i64),
                                 Data::Float(f) => format!("{:.2}", f),
                                 Data::Int(i) => i.to_string(),
                                 _ => cell.to_string().trim().to_string(),
@@ -517,6 +549,9 @@ impl CatalogImporter {
                 .as_deref()
                 .map(parse_price_to_paisa);
 
+            let reorder_level_milli = get_cell(&["low_stock_alert", "reorder_level", "min_stock"]).as_deref().map(parse_qty_milli).unwrap_or(0);
+            let is_service = get_cell(&["type", "item_type"]).as_deref().map(is_service_text).unwrap_or(false);
+
             rows.push(ImportRow {
                 sku,
                 name,
@@ -527,6 +562,8 @@ impl CatalogImporter {
                 barcode,
                 retail_price_paisa,
                 wholesale_price_paisa,
+                reorder_level_milli,
+                is_service,
             });
         }
 

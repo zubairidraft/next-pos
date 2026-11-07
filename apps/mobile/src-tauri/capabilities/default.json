@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "Next POS Mobile window",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

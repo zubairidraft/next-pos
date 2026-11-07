@@ -1,0 +1,22 @@
+[package]
+name = "nextpos-mobile"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Next POS Mobile: Android app that works with the shop PC over the shop WiFi"
+
+[lib]
+name = "nextpos_mobile_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+pos-lan = { path = "../../../crates/pos-lan" }
+# Camera barcode scanning (Android; empty on other systems).
+tauri-plugin-barcode-scanner = "2.5"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }

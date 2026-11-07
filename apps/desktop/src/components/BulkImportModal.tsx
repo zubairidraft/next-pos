@@ -10,6 +10,8 @@ import {
   Play,
   RotateCcw,
 } from "lucide-react";
+import { api, errorText } from "../lib/api";
+import { useToast } from "../lib/toast";
 
 interface BulkImportModalProps {
   isOpen: boolean;
@@ -36,6 +38,8 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
 }) => {
   const { t } = useTranslation();
 
+  const toast = useToast();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -111,11 +115,11 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
 
   const handleDownloadTemplate = () => {
     const csvContent =
-      "sku,name,name_ur,category,brand,unit,barcode,retail_price,wholesale_price\n" +
+      "sku,name,name_ur,category,brand,unit,barcode,retail_price,wholesale_price,low_stock_alert,type\n" +
       previewRows
         .map(
           (r) =>
-            `"${r.sku}","${r.name}","${r.nameUr}","${r.category}","${r.brand}","${r.unit}","${r.barcode}",${r.retailPrice},${r.wholesalePrice}`
+            `"${r.sku}","${r.name}","${r.nameUr}","${r.category}","${r.brand}","${r.unit}","${r.barcode}",${r.retailPrice},${r.wholesalePrice},5,product`
         )
         .join("\n");
 
@@ -129,53 +133,57 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     document.body.removeChild(link);
   };
 
+  const pickFile = (f: File | undefined) => {
+    if (!f) return;
+    if (!/\.(csv|xlsx|xls)$/i.test(f.name)) {
+      toast.error("Please choose an Excel (.xlsx) or CSV file.");
+      return;
+    }
+    setSelectedFile(f);
+    setSelectedFileName(f.name);
+  };
+
   const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setSelectedFileName(e.dataTransfer.files[0].name);
-    }
+    pickFile(e.dataTransfer.files?.[0]);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFileName(e.target.files[0].name);
+    pickFile(e.target.files?.[0]);
+  };
+
+  const handleStartImport = async () => {
+    if (!selectedFile) return;
+    setIsProcessing(true);
+    setProgress(10);
+    setProcessedRows(0);
+    setImportSummary(null);
+    try {
+      const buf = new Uint8Array(await selectedFile.arrayBuffer());
+      let bin = "";
+      for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+      setProgress(40);
+      const r = await api.importProductsFile(selectedFile.name, btoa(bin));
+      setProgress(100);
+      setProcessedRows(r.total_rows);
+      setImportSummary({
+        total: r.total_rows,
+        imported: r.imported,
+        skipped: r.skipped,
+        durationMs: r.duration_ms,
+        errors: r.errors.map((e) => ({ row: e.row, sku: e.sku, error: e.message })),
+      });
+      onImportComplete?.(r.imported);
+    } catch (e) {
+      setProgress(0);
+      toast.error(errorText(e));
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  const handleStartImport = () => {
-    setIsProcessing(true);
-    setProgress(0);
-    setProcessedRows(0);
-    setImportSummary(null);
-
-    const targetTotal = 50000;
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsProcessing(false);
-          setImportSummary({
-            total: targetTotal,
-            imported: 49992,
-            skipped: 8,
-            durationMs: 10756, // matches our measured pos-core benchmark
-            errors: [
-              { row: 1420, sku: "DUP-SKU-001", error: "Duplicate SKU in spreadsheet" },
-              { row: 3890, sku: "BAD-BC-099", error: "Duplicate barcode detected" },
-              { row: 12040, sku: "", error: "Missing required SKU code" },
-            ],
-          });
-          onImportComplete?.(49992);
-          return 100;
-        }
-        const next = prev + 10;
-        setProcessedRows(Math.min(targetTotal, Math.round((next / 100) * targetTotal)));
-        return next;
-      });
-    }, 150);
-  };
-
   const resetImporter = () => {
+    setSelectedFile(null);
     setSelectedFileName(null);
     setIsProcessing(false);
     setProgress(0);
@@ -228,7 +236,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
               <input
                 type="file"
                 id="file-upload"
-                accept=".csv, .xlsx, .xls"
+                accept=".csv,.xlsx,.xls"
                 onChange={handleFileSelect}
                 className="hidden"
               />

@@ -1,0 +1,19 @@
+[package]
+name = "pos-lan"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Next POS phone <-> PC link over the shop WiFi: pinned TLS, tiny HTTP framing, discovery, phone client."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+sha2 = "0.10"
+getrandom = "0.2"
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"], optional = true }
+
+[features]
+# PC side: makes the self-signed certificate. The phone app does not need it.
+server = ["dep:rcgen"]
