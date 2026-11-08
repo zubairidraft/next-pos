@@ -746,7 +746,8 @@ fn phone_pairing_qr(app: AppHandle, core: State<Core>, phones: State<Phones>) ->
     }
     let (code, store) = with(&core, |a| {
         let code = a.lan_new_pairing_code()?;
-        Ok((code, a.get_settings()?.name))
+        let store = a.get_settings().map(|s| s.name).unwrap_or_else(|_| "Next POS".to_string());
+        Ok((code, store))
     })?;
     let hub = phones.hub.lock().map_err(|_| "Internal error".to_string())?;
     match hub.as_ref() {

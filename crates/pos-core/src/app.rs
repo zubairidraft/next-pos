@@ -597,7 +597,11 @@ impl PosApp {
 
     pub fn get_settings(&self) -> Result<BusinessSettings> {
         self.require_login()?;
-        SettingsRepo::get(self.conn()?)
+        match SettingsRepo::get(self.conn()?) {
+            Ok(s) => Ok(s),
+            Err(PosError::NotFound(_)) => Ok(SettingsRepo::default_settings()),
+            Err(e) => Err(e),
+        }
     }
 
     pub fn save_settings(&self, mut settings: BusinessSettings) -> Result<()> {

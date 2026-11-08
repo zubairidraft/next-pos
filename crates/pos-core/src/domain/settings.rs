@@ -83,6 +83,26 @@ impl SettingsRepo {
         .map_err(|e| PosError::NotFound(format!("No business settings found: {}", e)))
     }
 
+    pub fn default_settings() -> BusinessSettings {
+        BusinessSettings {
+            id: "default".into(),
+            name: "Next POS".into(),
+            name_ur: None,
+            address: None,
+            phone: None,
+            ntn: None,
+            strn: None,
+            currency: "PKR".into(),
+            time_zone: "Asia/Karachi".into(),
+            tax_mode: "inclusive".into(),
+            negative_stock_policy: "Warn".into(),
+            enabled_packs: vec!["grocery".into()],
+            fbr_enabled: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
     pub fn save_or_update(conn: &Connection, settings: &BusinessSettings) -> Result<()> {
         let packs_json = serde_json::to_string(&settings.enabled_packs)
             .map_err(|e| PosError::Validation(format!("Failed to serialize enabled_packs: {}", e)))?;

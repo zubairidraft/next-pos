@@ -124,7 +124,7 @@ fn desktop(app: &mut PosApp, scans: &mut VecDeque<Value>, cmd: &str, a: &Value) 
         }
         "phone_pairing_qr" => {
             let code = app.lan_new_pairing_code().map_err(e)?;
-            let store = app.get_settings().map_err(e)?.name;
+            let store = app.get_settings().map(|s| s.name).unwrap_or_else(|_| "Next POS".to_string());
             let qr = pos_lan::PairingQr { v: 1, store, hosts: vec!["browser-test".into()], port: pos_lan::HTTP_PORT, fp: "0".repeat(64), code };
             Ok(json!(qr.to_qr_text()))
         }
