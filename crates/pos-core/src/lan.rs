@@ -48,6 +48,7 @@ pub const PHONE_COMMANDS: &[&str] = &[
     "quote",
     "checkout",
     "recent_sales",
+    "report",
     "get_receipt",
     "park_cart",
     "list_parked",

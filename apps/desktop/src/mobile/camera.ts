@@ -39,3 +39,46 @@ export function buzz(ms = 60) {
     /* not available */
   }
 }
+
+// ------------------------------------------------------------ keep scanning
+
+/** Asks for the camera once (Android app). Throws a plain message if refused. */
+export async function cameraReady(): Promise<void> {
+  if (!isTauri) return;
+  const bs = await import("@tauri-apps/plugin-barcode-scanner");
+  let perm = await bs.checkPermissions();
+  if (perm !== "granted") perm = await bs.requestPermissions();
+  if (perm !== "granted") {
+    throw new Error("Camera permission is off. Allow the camera for Next POS in the phone settings.");
+  }
+}
+
+/**
+ * One product scan with the camera shown BEHIND the app screen, so our own
+ * "Complete scan" button stays on top. Returns null when the scan was stopped.
+ * Android app only (the browser test mode types codes instead).
+ */
+export async function scanBehind(): Promise<string | null> {
+  const bs = await import("@tauri-apps/plugin-barcode-scanner");
+  const F = bs.Format;
+  const formats = [F.EAN13, F.EAN8, F.UPC_A, F.UPC_E, F.Code128, F.Code39, F.Code93, F.ITF, F.Codabar, F.QRCode, F.DataMatrix];
+  try {
+    const r = await bs.scan({ windowed: true, formats, cameraDirection: "back" });
+    return r.content?.trim() || null;
+  } catch (e) {
+    const m = String((e as Error)?.message || e).toLowerCase();
+    if (m.includes("cancel")) return null;
+    throw e;
+  }
+}
+
+/** Stops a running camera scan (Android app). */
+export async function stopScan(): Promise<void> {
+  if (!isTauri) return;
+  try {
+    const bs = await import("@tauri-apps/plugin-barcode-scanner");
+    await bs.cancel();
+  } catch {
+    /* nothing was running */
+  }
+}

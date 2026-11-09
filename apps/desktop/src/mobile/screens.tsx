@@ -1,9 +1,11 @@
 // Phone screens. Every action is checked again on the PC (login, role,
 // licence, shift, stock and price rules), exactly as at the PC counter.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, CheckCircle2, ClipboardCheck, Loader2, Minus, Pencil, Plus, Search, Send, Trash2, XCircle } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ArrowLeft, Camera, CheckCircle2, ChevronRight, ClipboardCheck, Loader2, Minus, Pencil, Plus, ScanLine, Search, Send, Trash2, XCircle } from "lucide-react";
 import {
   api,
+  isTauri,
   CashSession,
   CheckoutLineInput,
   CustomerSummary,
@@ -17,11 +19,14 @@ import {
   Quote,
   ReceiptData,
   StockCountSession,
+  ReportTable,
   TopProduct,
 } from "../lib/api";
+import { formatCell, isNumericKind, periodText } from "../lib/exporter";
+import { endOf, QUICK_RANGES, quickRange, REPORT_GROUPS } from "../lib/reportCatalog";
 import { useSession } from "../context/SessionContext";
 import { useToast } from "../lib/toast";
-import { buzz, scanWithCamera } from "./camera";
+import { buzz, cameraReady, scanBehind, scanWithCamera, stopScan } from "./camera";
 import { link, LINK_EVENT, LinkState } from "./link";
 import { bigBtn, card } from "./MobileApp";
 
@@ -139,6 +144,126 @@ export function ScannerScreen() {
 
 // ------------------------------------------------------------ sale
 
+// ------------------------------------------------------------ keep scanning (sale screen)
+
+interface ScanNote {
+  ok: boolean;
+  text: string;
+}
+
+/**
+ * Camera stays on: every barcode is added to the sale, then the camera opens again
+ * for the next item. "Complete scan" closes it and shows the sale with all items.
+ * The camera is drawn behind the app, so this screen keeps only a frame and buttons.
+ */
+function KeepScanning({ onCode, onDone }: { onCode: (code: string) => Promise<ScanNote>; onDone: () => void }) {
+  const [count, setCount] = useState(0);
+  const [last, setLast] = useState<ScanNote | null>(null);
+  const [paused, setPaused] = useState(false); // short pause after each scan (shows what was added)
+  const [typed, setTyped] = useState("");
+  const running = useRef(true);
+  const onCodeRef = useRef(onCode);
+  onCodeRef.current = onCode;
+
+  const handle = useCallback(async (code: string) => {
+    const note = await onCodeRef.current(code).catch((e) => ({ ok: false, text: errorText(e) }));
+    setLast(note);
+    if (note.ok) {
+      setCount((c) => c + 1);
+      buzz(80);
+    } else {
+      buzz(300);
+    }
+  }, []);
+
+  useEffect(() => {
+    running.current = true;
+    document.documentElement.classList.add("np-scanning");
+    if (isTauri) {
+      (async () => {
+        try {
+          await cameraReady();
+          while (running.current) {
+            setPaused(false);
+            const code = await scanBehind();
+            if (!running.current || code === null) break;
+            setPaused(true);
+            await handle(code);
+            // Time to move the phone to the next item (stops one item counting twice).
+            await new Promise((r) => setTimeout(r, 900));
+          }
+        } catch (e) {
+          setLast({ ok: false, text: errorText(e) });
+          setPaused(true);
+        }
+      })();
+    }
+    return () => {
+      running.current = false;
+      document.documentElement.classList.remove("np-scanning");
+      stopScan();
+    };
+  }, [handle]);
+
+  const finish = () => {
+    running.current = false;
+    stopScan();
+    onDone();
+  };
+
+  const camLive = isTauri && !paused;
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex flex-col text-white" style={{ visibility: "visible" }}>
+      <style>{`html.np-scanning, html.np-scanning body { background: transparent !important; } html.np-scanning #root { visibility: hidden; }`}</style>
+      <div className="bg-black/70 px-4 pt-4 pb-3 flex items-center justify-between">
+        <div className="font-bold flex items-center gap-2"><ScanLine className="w-5 h-5" /> Keep scanning</div>
+        <div className="text-sm font-semibold">{count} scanned</div>
+      </div>
+
+      <div className={`flex-1 flex items-center justify-center ${camLive ? "" : "bg-slate-900"}`}>
+        {camLive ? (
+          <div className="w-72 h-44 rounded-2xl border-4 border-emerald-400/90" />
+        ) : (
+          <div className="text-center px-6">
+            {last ? (
+              <>
+                {last.ok ? <CheckCircle2 className="w-16 h-16 mx-auto text-emerald-400" /> : <XCircle className="w-16 h-16 mx-auto text-rose-400" />}
+                <div className={`mt-2 text-lg font-bold ${last.ok ? "text-emerald-300" : "text-rose-300"}`}>{last.text}</div>
+              </>
+            ) : (
+              <div className="text-slate-300">{isTauri ? "Opening camera…" : "Browser test mode: type a barcode below."}</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-black/80 p-4 space-y-3">
+        {camLive && last && <div className={`text-sm font-semibold truncate ${last.ok ? "text-emerald-300" : "text-rose-300"}`}>{last.text}</div>}
+        {!isTauri && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const c = typed.trim();
+              setTyped("");
+              if (c) handle(c);
+            }}
+            className="flex gap-2"
+          >
+            <input aria-label="Barcode" autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Barcode" className="flex-1 px-4 py-3 rounded-xl bg-white text-slate-900 text-base" />
+            <button className="px-4 rounded-xl bg-slate-700 font-semibold">Add</button>
+          </form>
+        )}
+        <button onClick={finish} className={`${bigBtn} bg-emerald-600 text-white`}>
+          <CheckCircle2 className="w-5 h-5" /> Complete scan{count ? ` (${count})` : ""}
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ------------------------------------------------------------ sale
+
 export function SaleScreen() {
   const toast = useToast();
   const ask = useAsk();
@@ -150,6 +275,7 @@ export function SaleScreen() {
   const [results, setResults] = useState<ProductRow[]>([]);
   const [paying, setPaying] = useState(false);
   const [done, setDone] = useState<ReceiptData | null>(null);
+  const [keepScanning, setKeepScanning] = useState(false);
 
   const loadShift = useCallback(() => {
     api.activeShift().then(setShift).catch((e) => (setShift(null), toast.error(errorText(e))));
@@ -193,6 +319,13 @@ export function SaleScreen() {
     } catch (e) {
       toast.error(errorText(e));
     }
+  };
+
+  const keepScanCode = async (code: string): Promise<ScanNote> => {
+    const hit = await api.scanCode(code);
+    if (!hit) return { ok: false, text: `No product with barcode "${code}"` };
+    addLine(hit.product.variant_id, hit.unit_id, hit.qty_milli);
+    return { ok: true, text: `${hit.product.name} added` };
   };
 
   const editPrice = async (i: number) => {
@@ -266,6 +399,10 @@ export function SaleScreen() {
   return (
     <div className="p-4 space-y-3">
       <FindBar value={q} onChange={setQ} onCamera={camera} placeholder="Product name or SKU" />
+      <button onClick={() => setKeepScanning(true)} className={`${bigBtn} bg-slate-900 dark:bg-slate-700 text-white`}>
+        <ScanLine className="w-5 h-5" /> Keep scanning
+      </button>
+      {keepScanning && <KeepScanning onCode={keepScanCode} onDone={() => setKeepScanning(false)} />}
       {results.length > 0 && (
         <div className={`${card} divide-y divide-slate-100 dark:divide-slate-800 max-h-72 overflow-y-auto`}>
           {results.map((p) => (
@@ -767,7 +904,8 @@ export function PurchaseScreen() {
 
 // ------------------------------------------------------------ reports (today)
 
-export function ReportsScreen() {
+/** Today at a glance (top of the Reports tab). */
+function TodaySummary() {
   const toast = useToast();
   const { can } = useSession();
   const [sum, setSum] = useState<FinancialSummary | null>(null);
@@ -843,6 +981,177 @@ export function ReportsScreen() {
             <div key={r.variant_id} className="flex justify-between gap-2"><span className="truncate">{r.name}</span><span className="font-semibold text-rose-600">{formatQty(r.on_hand_milli, r.unit_code)}</span></div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ all reports (same as the PC)
+
+/** Reports tab: today's summary on top, then every report the PC has. */
+export function ReportsScreen() {
+  const { can } = useSession();
+  const [kind, setKind] = useState<string | null>(null);
+  const groups = REPORT_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !i.owner || can("SettingsManage")) })).filter((g) => g.items.length);
+  const current = groups.flatMap((g) => g.items).find((i) => i.kind === kind);
+  if (kind && current) return <ReportDetail kind={kind} label={current.label} onBack={() => setKind(null)} />;
+  return (
+    <div>
+      <TodaySummary />
+      <div className="px-4 pb-6 space-y-3">
+        <h2 className="font-bold text-lg">All reports</h2>
+        {groups.map((g) => (
+          <div key={g.title} className={`${card} divide-y divide-slate-100 dark:divide-slate-800`}>
+            <div className="px-4 pt-3 pb-1 text-[11px] uppercase tracking-wide font-bold text-slate-400">{g.title}</div>
+            {g.items.map((i) => (
+              <button key={i.kind} onClick={() => setKind(i.kind)} className="w-full text-left px-4 py-3 flex items-center justify-between font-semibold">
+                {i.label}
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** One report for a from – to period, with search, summary and the full table. */
+function ReportDetail({ kind, label, onBack }: { kind: string; label: string; onBack: () => void }) {
+  const toast = useToast();
+  const [from, setFrom] = useState(() => quickRange("today")[0]);
+  const [to, setTo] = useState(() => quickRange("today")[1]);
+  const [table, setTable] = useState<ReportTable | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [onlyLow, setOnlyLow] = useState(false);
+  const dated = !kind.startsWith("list_");
+
+  const run = useCallback(
+    async (f: string, t: string) => {
+      if (f > t) return toast.error("The 'from' date is after the 'to' date.");
+      setLoading(true);
+      try {
+        setTable(await api.report(kind, new Date(`${f}T00:00:00`).toISOString(), endOf(t)));
+      } catch (e) {
+        setTable(null);
+        toast.error(errorText(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [kind, toast]
+  );
+  useEffect(() => {
+    run(from, to);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind]);
+
+  const statusCol = table?.columns.findIndex((c) => c.key === "status") ?? -1;
+  const shown = useMemo(() => {
+    if (!table) return null;
+    const q = filter.trim().toLowerCase();
+    let rows = table.rows;
+    if (kind === "stock" && onlyLow && statusCol >= 0) rows = rows.filter((r) => r[statusCol]);
+    if (q) rows = rows.filter((r) => r.some((v) => String(v ?? "").toLowerCase().includes(q)));
+    if (rows === table.rows) return table;
+    const totals = table.totals.length
+      ? table.totals.map((v, i) => (typeof v === "number" ? rows.reduce((s, r) => s + (typeof r[i] === "number" ? (r[i] as number) : 0), 0) : v))
+      : [];
+    return { ...table, rows, totals, note: [table.note, `Filtered: ${rows.length} of ${table.rows.length} rows.`].filter(Boolean).join(" ") };
+  }, [table, filter, onlyLow, kind, statusCol]);
+
+  return (
+    <div className="p-4 space-y-3 pb-8">
+      <div className="flex items-center gap-2">
+        <button onClick={onBack} aria-label="Back to reports" className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center"><ArrowLeft className="w-5 h-5" /></button>
+        <h2 className="font-bold text-lg flex-1 truncate">{label}</h2>
+        {loading && <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />}
+      </div>
+
+      {dated && (
+        <div className={`${card} p-3 space-y-2`}>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {QUICK_RANGES.map(([k, l]) => (
+              <button
+                key={k}
+                onClick={() => {
+                  const [f, t] = quickRange(k);
+                  setFrom(f);
+                  setTo(t);
+                  run(f, t);
+                }}
+                className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 dark:bg-slate-800"
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs font-semibold text-slate-500">From<input type="date" aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${input} mt-1 py-2`} /></label>
+            <label className="text-xs font-semibold text-slate-500">To<input type="date" aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} className={`${input} mt-1 py-2`} /></label>
+          </div>
+          <button onClick={() => run(from, to)} className={`${bigBtn} bg-emerald-600 text-white py-2.5`}>Show report</button>
+        </div>
+      )}
+
+      <div className="relative">
+        <Search className="w-4 h-4 absolute left-3 top-4 text-slate-400" />
+        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search in this report" className={`${input} pl-9`} />
+      </div>
+      {kind === "stock" && (
+        <label className="flex items-center gap-2 text-sm font-semibold">
+          <input type="checkbox" checked={onlyLow} onChange={(e) => setOnlyLow(e.target.checked)} className="w-5 h-5" /> Only low / out of stock
+        </label>
+      )}
+
+      {shown && (
+        <>
+          <div className="text-xs text-slate-500">{periodText(shown)}</div>
+          {shown.summary.length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {shown.summary.map((s) => (
+                <div key={s.label} className={`${card} p-3`}>
+                  <div className="text-[11px] text-slate-500">{s.label}</div>
+                  <div className="text-base font-extrabold mt-0.5">{formatCell(s.value, s.kind)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className={`${card} overflow-x-auto`}>
+            <table className="min-w-full text-xs">
+              <thead className="bg-slate-50 dark:bg-slate-800/60">
+                <tr>
+                  {shown.columns.map((c) => (
+                    <th key={c.key} className={`px-3 py-2 font-bold whitespace-nowrap ${isNumericKind(c.kind) ? "text-right" : "text-left"}`}>{c.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {shown.rows.length === 0 && (
+                  <tr><td colSpan={shown.columns.length} className="px-3 py-6 text-center text-slate-500">Nothing in this period.</td></tr>
+                )}
+                {shown.rows.map((r, i) => (
+                  <tr key={i}>
+                    {r.map((v, j) => (
+                      <td key={j} className={`px-3 py-2 whitespace-nowrap ${isNumericKind(shown.columns[j].kind) ? "text-right" : ""}`}>{formatCell(v, shown.columns[j].kind)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+              {shown.totals.length > 0 && shown.rows.length > 0 && (
+                <tfoot className="bg-slate-50 dark:bg-slate-800/60 font-bold">
+                  <tr>
+                    {shown.totals.map((v, j) => (
+                      <td key={j} className={`px-3 py-2 whitespace-nowrap ${isNumericKind(shown.columns[j].kind) ? "text-right" : ""}`}>{typeof v === "string" ? v : formatCell(v, shown.columns[j].kind)}</td>
+                    ))}
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+          {shown.note && <div className="text-xs text-slate-500">{shown.note}</div>}
+        </>
       )}
     </div>
   );

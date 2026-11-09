@@ -131,6 +131,34 @@ fn phone_has_its_own_login_and_only_allowed_commands() {
     assert_eq!(app.status().unwrap().session.unwrap().username, "owner");
 }
 
+#[test]
+fn phone_opens_the_same_reports_as_the_pc_with_the_same_permissions() {
+    let (mut app, _d) = shop();
+    product_with_stock(&mut app);
+    app.set_lan_enabled(true).unwrap();
+    app.create_user(NewUserInput { username: "ali".into(), password: "cashier-pass".into(), pin: Some("5555".into()), role: Role::Cashier }).unwrap();
+    let users = app.status().unwrap().users;
+    let id = |n: &str| users.iter().find(|u| u.username == n).unwrap().id.clone();
+    let (from, to) = ("2020-01-01T00:00:00Z", "2029-12-31T23:59:59Z");
+
+    let mut owner_phone = None;
+    app.phone_dispatch(&mut owner_phone, "login_pin", &json!({"user_id": id("owner"), "pin": "1234"})).unwrap();
+    for kind in [
+        "stock", "purchases", "purchase_returns", "sales", "sale_returns", "services", "daily", "recovery", "salesman",
+        "claims", "profit", "activity", "analysis_trend", "analysis_movers", "analysis_margin", "list_products", "list_customers", "list_vendors",
+    ] {
+        let r = app.phone_dispatch(&mut owner_phone, "report", &json!({"kind": kind, "from": from, "to": to, "offset_min": 300}));
+        assert!(r.is_ok(), "{kind}: {:?}", r.err().map(|e| e.to_string()));
+    }
+    let stock = app.phone_dispatch(&mut owner_phone, "report", &json!({"kind": "purchases", "from": from, "to": to, "offset_min": 300})).unwrap();
+    assert_eq!(stock["rows"].as_array().unwrap().len(), 1);
+
+    // A cashier on the phone gets the same "no permission" answer as on the PC.
+    let mut cashier_phone = None;
+    app.phone_dispatch(&mut cashier_phone, "login_pin", &json!({"user_id": id("ali"), "pin": "5555"})).unwrap();
+    assert!(app.phone_dispatch(&mut cashier_phone, "report", &json!({"kind": "activity", "from": from, "to": to, "offset_min": 300})).is_err());
+}
+
 struct Running {
     hub: LanHub,
     app: SharedApp,
