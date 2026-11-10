@@ -225,7 +225,11 @@ fn reports_add_up_and_respect_roles() {
     let oil_row = stock.rows.iter().find(|r| r[0] == "Cooking oil 1L").unwrap();
     assert_eq!((oil_row[4].as_i64(), oil_row[5].as_i64(), oil_row[6].as_i64()), (Some(10_000), Some(3_000), Some(7_000)));
     let rice_row = stock.rows.iter().find(|r| r[0] == "Rice 1kg").unwrap();
-    assert_eq!(rice_row[9], "Low", "3 left with alert at 5");
+    let sc = |k: &str| stock.columns.iter().position(|c| c.key == k).unwrap();
+    assert_eq!(rice_row[sc("status")], "Low", "3 left with alert at 5");
+    // Sale price and wholesale price, each in its own column (wholesale blank when not set).
+    assert_eq!((oil_row[sc("price")].as_i64(), oil_row[sc("wholesale")].as_i64()), (Some(60_000), Some(55_000)));
+    assert_eq!((rice_row[sc("price")].as_i64(), rice_row[sc("wholesale")].is_null()), (Some(30_000), true));
 
     let sm = s.app.report("salesman", &f, &t, None).unwrap();
     assert_eq!(sm.rows[0][0], "owner");

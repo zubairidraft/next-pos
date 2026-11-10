@@ -200,6 +200,8 @@ impl PosApp {
             ("out", "Out", "qty"),
             ("closing", "Closing", "qty"),
             ("cost", "Avg cost", "money"),
+            ("price", "Sale price", "money"),
+            ("wholesale", "Wholesale", "money"),
             ("value", "Value", "money"),
             ("status", "Status", "text"),
         ])
@@ -211,7 +213,11 @@ impl PosApp {
                     COALESCE(SUM(CASE WHEN sm.occurred_at < ?1 THEN sm.qty_signed_milli END), 0),
                     COALESCE(SUM(CASE WHEN sm.occurred_at >= ?1 AND sm.qty_signed_milli > 0 THEN sm.qty_signed_milli END), 0),
                     COALESCE(SUM(CASE WHEN sm.occurred_at >= ?1 AND sm.qty_signed_milli < 0 THEN -sm.qty_signed_milli END), 0),
-                    COALESCE(ib.on_hand_milli, 0), COALESCE(ib.avg_cost_paisa, 0), p.reorder_level_milli
+                    COALESCE(ib.on_hand_milli, 0), COALESCE(ib.avg_cost_paisa, 0), p.reorder_level_milli,
+                    COALESCE((SELECT pr.price_paisa FROM prices pr WHERE pr.variant_id = pv.id AND pr.unit_id = p.base_unit_id
+                              AND pr.price_list_id = 'retail' ORDER BY pr.valid_from, pr.id LIMIT 1), 0),
+                    (SELECT pr.price_paisa FROM prices pr WHERE pr.variant_id = pv.id AND pr.unit_id = p.base_unit_id
+                     AND pr.price_list_id = 'wholesale' ORDER BY pr.valid_from, pr.id LIMIT 1)
              FROM product_variants pv
              JOIN products p ON p.id = pv.product_id
              JOIN units u ON u.id = p.base_unit_id
@@ -231,11 +237,13 @@ impl PosApp {
                 r.get::<_, i64>(6)?,
                 r.get::<_, i64>(7)?,
                 r.get::<_, i64>(8)?,
+                r.get::<_, i64>(9)?,
+                r.get::<_, Option<i64>>(10)?,
             ))
         })?;
         let (mut items, mut low, mut out) = (0, 0, 0);
         for row in rows {
-            let (name, sku, unit, mut opening, qin, qout, on_hand, cost, reorder) = row?;
+            let (name, sku, unit, mut opening, qin, qout, on_hand, cost, reorder, price, wholesale) = row?;
             let closing = if to_now {
                 opening = on_hand - qin + qout;
                 on_hand
@@ -252,12 +260,12 @@ impl PosApp {
                 ""
             };
             items += 1;
-            b.row(vec![json!(name), json!(sku), json!(unit), json!(opening), json!(qin), json!(qout), json!(closing), json!(cost), json!(closing.max(0) * cost / 1000), json!(status)]);
+            b.row(vec![json!(name), json!(sku), json!(unit), json!(opening), json!(qin), json!(qout), json!(closing), json!(cost), json!(price), wholesale.map(|w| json!(w)).unwrap_or(Value::Null), json!(closing.max(0) * cost / 1000), json!(status)]);
         }
         b.stat("Products", json!(items), "int");
         b.stat("Low stock", json!(low), "int");
         b.stat("Out of stock", json!(out), "int");
-        let value: i64 = b.rows.iter().map(|r| r[8].as_i64().unwrap_or(0)).sum();
+        let value: i64 = b.rows.iter().map(|r| r[10].as_i64().unwrap_or(0)).sum();
         b.stat("Stock value (at cost)", json!(value), "money");
         Ok(b.finish("stock", fs, ts, true))
     }
