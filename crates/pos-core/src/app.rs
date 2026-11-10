@@ -349,6 +349,8 @@ pub mod ops;
 pub mod reports;
 #[path = "history.rs"]
 pub mod history;
+#[path = "cloud.rs"]
+pub mod cloud;
 
 fn perm_err(msg: &str) -> PosError {
     PosError::BusinessRule(msg.to_string())
@@ -2086,36 +2088,6 @@ pub struct LowStockRow {
     pub reorder_level_milli: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct CloudSettingsView {
-    pub enabled: bool,
-    pub url: Option<String>,
-    /// The key itself is never sent back to the screen.
-    pub key_set: bool,
-    pub consent_at: Option<String>,
-    pub last_synced_at: Option<String>,
-    pub pending_events: i64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CloudSettingsInput {
-    pub enabled: bool,
-    pub url: Option<String>,
-    /// None = keep the stored key; Some("") = remove it.
-    pub api_key: Option<String>,
-}
-
-/// What the shell sends to the cloud in one request.
-#[derive(Debug, Clone)]
-pub struct CloudBatch {
-    pub url: String,
-    pub api_key: String,
-    pub shop_id: String,
-    pub shop_name: String,
-    pub event_ids: Vec<String>,
-    pub events: Vec<serde_json::Value>,
-}
-
 fn setting(conn: &Connection, key: &str) -> Result<Option<String>> {
     Ok(conn.query_row("SELECT value FROM app_settings WHERE key = ?1", params![key], |r| r.get(0)).optional()?)
 }
@@ -2442,99 +2414,6 @@ impl PosApp {
         Ok(())
     }
 
-    // ------------------------------------------------------------ cloud sync (Owner opt-in)
-
-    pub fn cloud_settings(&self) -> Result<CloudSettingsView> {
-        self.require(Permission::SettingsManage)?;
-        let conn = self.conn()?;
-        let pending: i64 = conn.query_row("SELECT COUNT(*) FROM sync_outbox WHERE synced_at IS NULL", [], |r| r.get(0))?;
-        Ok(CloudSettingsView {
-            enabled: setting(conn, "cloud.enabled")?.as_deref() == Some("1"),
-            url: setting(conn, "cloud.url")?,
-            key_set: setting(conn, "cloud.api_key")?.map(|k| !k.is_empty()).unwrap_or(false),
-            consent_at: setting(conn, "cloud.consent_at")?,
-            last_synced_at: setting(conn, "cloud.last_synced_at")?,
-            pending_events: pending,
-        })
-    }
-
-    /// Only the Owner can turn cloud sync on. Nothing is ever sent while it is off.
-    pub fn save_cloud_settings(&self, input: CloudSettingsInput) -> Result<CloudSettingsView> {
-        let uid = self.require(Permission::SettingsManage)?.user_id.clone();
-        let conn = self.conn()?;
-        if let Some(url) = input.url.as_deref().map(str::trim) {
-            if !url.is_empty() && (!url.starts_with("https://") || url.contains(' ')) {
-                return Err(PosError::Validation("Cloud URL must start with https://".into()));
-            }
-            set_setting(conn, "cloud.url", url.trim_end_matches('/'))?;
-        }
-        if let Some(k) = input.api_key.as_deref() {
-            set_setting(conn, "cloud.api_key", k.trim())?;
-        }
-        if input.enabled {
-            let url_ok = setting(conn, "cloud.url")?.map(|u| !u.is_empty()).unwrap_or(false);
-            let key_ok = setting(conn, "cloud.api_key")?.map(|k| !k.is_empty()).unwrap_or(false);
-            if !url_ok || !key_ok {
-                return Err(PosError::Validation("Enter the cloud URL and key before turning sync on".into()));
-            }
-            if setting(conn, "cloud.consent_at")?.is_none() {
-                set_setting(conn, "cloud.consent_at", &now().to_rfc3339())?;
-            }
-        }
-        set_setting(conn, "cloud.enabled", if input.enabled { "1" } else { "0" })?;
-        AuditRepo::write(conn, Some(&uid), if input.enabled { "cloud_sync_enabled" } else { "cloud_sync_disabled" }, "settings", None, None, None)?;
-        self.cloud_settings()
-    }
-
-    /// Up to 50 unsent events, or None when sync is off.
-    pub fn cloud_batch(&self) -> Result<Option<CloudBatch>> {
-        self.require(Permission::BackupManage)?;
-        let conn = self.conn()?;
-        if setting(conn, "cloud.enabled")?.as_deref() != Some("1") {
-            return Ok(None);
-        }
-        let url = setting(conn, "cloud.url")?.unwrap_or_default();
-        let api_key = setting(conn, "cloud.api_key")?.unwrap_or_default();
-        if url.is_empty() || api_key.is_empty() {
-            return Ok(None);
-        }
-        let rows: Vec<(String, String, String, String)> = conn
-            .prepare("SELECT event_id, event_type, payload_json, occurred_at FROM sync_outbox WHERE synced_at IS NULL ORDER BY occurred_at LIMIT 50")?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-            .collect::<std::result::Result<_, _>>()?;
-        let shop_name = SettingsRepo::get(conn).map(|s| s.name).unwrap_or_default();
-        Ok(Some(CloudBatch {
-            url,
-            api_key,
-            shop_id: self.machine_id.clone(),
-            shop_name,
-            event_ids: rows.iter().map(|r| r.0.clone()).collect(),
-            events: rows
-                .into_iter()
-                .map(|(id, t, p, at)| {
-                    serde_json::json!({
-                        "event_id": id,
-                        "event_type": t,
-                        "payload": serde_json::from_str::<serde_json::Value>(&p).unwrap_or(serde_json::Value::Null),
-                        "occurred_at": at,
-                    })
-                })
-                .collect(),
-        }))
-    }
-
-    /// Marks exactly the events that were sent (not ones added meanwhile).
-    pub fn cloud_mark_synced(&self, event_ids: &[String]) -> Result<()> {
-        let uid = self.require(Permission::BackupManage)?.user_id.clone();
-        let conn = self.conn()?;
-        let ts = now().to_rfc3339();
-        for id in event_ids {
-            conn.execute("UPDATE sync_outbox SET synced_at = ?2 WHERE event_id = ?1", params![id, ts])?;
-        }
-        set_setting(conn, "cloud.last_synced_at", &ts)?;
-        AuditRepo::write(conn, Some(&uid), "cloud_synced", "sync_outbox", None, None, Some(&format!("{{\"events\":{}}}", event_ids.len())))?;
-        Ok(())
-    }
 }
 
 // ---------------------------------------------------------------- dev bridge dispatch
@@ -2555,6 +2434,9 @@ fn json<T: Serialize>(v: T) -> Result<serde_json::Value> {
 impl PosApp {
     pub fn dispatch(&mut self, cmd: &str, a: &serde_json::Value) -> Result<serde_json::Value> {
         if let Some(r) = self.dispatch_ops(cmd, a) {
+            return r;
+        }
+        if let Some(r) = self.dispatch_cloud(cmd, a) {
             return r;
         }
         if let Some(r) = self.dispatch_reports(cmd, a) {
@@ -2657,8 +2539,6 @@ impl PosApp {
             "restore_backup" => json(self.restore_backup(&arg::<String>(a, "path")?, &arg::<String>(a, "password")?)?),
             "create_snapshot" => json(self.create_snapshot()?),
             "list_snapshots" => json(self.list_snapshots()?),
-            "cloud_settings" => json(self.cloud_settings()?),
-            "save_cloud_settings" => json(self.save_cloud_settings(arg(a, "input")?)?),
             "list_printers" => {
                 self.require_printer_user()?;
                 json(Vec::<String>::new())
@@ -2666,7 +2546,7 @@ impl PosApp {
             "print_receipt" | "print_z_report" | "print_test_receipt" | "kick_drawer" | "cut_paper" | "print_labels" => Err(PosError::BusinessRule(
                 "Printing and the cash drawer work only in the desktop app (browser test mode)".into(),
             )),
-            "sync_to_cloud" => Err(PosError::BusinessRule("Cloud sync runs only in the desktop app (browser test mode)".into())),
+            "cloud_link" | "cloud_sync_now" | "cloud_backup_now" => Err(PosError::BusinessRule("Cloud linking and sending run only in the desktop app (browser test mode)".into())),
             other => Err(PosError::NotFound(format!("Unknown command '{}'", other))),
         }
     }

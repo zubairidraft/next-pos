@@ -6,6 +6,7 @@ dist/
 .nextpos_security/
 .nextpos_signing/
 dist-mobile/
+dist-admin/
 _backup*/
 _backups/
 pos_browser_test_mode.zip

@@ -14,6 +14,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 chrono.workspace = true
 rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl", "chrono"] }
+tokio = { version = "1", features = ["time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [build-dependencies]

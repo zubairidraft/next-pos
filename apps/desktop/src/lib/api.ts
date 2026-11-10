@@ -706,24 +706,21 @@ export interface DiagnosticsInfo {
   customers: number;
 }
 
-export interface CloudSettingsView {
-  enabled: boolean;
-  url: string | null;
-  key_set: boolean;
-  consent_at: string | null;
+export interface CloudStatus {
+  linked: boolean;
+  shop_id: string | null;
+  server: string | null;
+  linked_at: string | null;
   last_synced_at: string | null;
-  pending_events: number;
+  last_error: string | null;
+  pending: number;
+  backup_password_set: boolean;
+  last_backup_at: string | null;
+  last_backup_error: string | null;
 }
 
-export interface CloudSettingsInput {
-  enabled: boolean;
-  url?: string | null;
-  /** undefined/null = keep the stored key; "" = remove it. */
-  api_key?: string | null;
-}
-
-export interface CloudSyncResult {
-  synced_count: number;
+export interface CloudActionResult {
+  status: CloudStatus;
   message: string;
 }
 
@@ -1235,10 +1232,14 @@ export const api = {
   createSnapshot: () => call<SnapshotInfo>("create_snapshot"),
   listSnapshots: () => call<SnapshotInfo[]>("list_snapshots"),
 
-  // cloud sync (Owner opt-in)
-  cloudSettings: () => call<CloudSettingsView>("cloud_settings"),
-  saveCloudSettings: (input: CloudSettingsInput) => call<CloudSettingsView>("save_cloud_settings", { input }),
-  syncToCloud: () => call<CloudSyncResult>("sync_to_cloud"),
+  // Next POS Cloud (Owner only)
+  cloudStatus: () => call<CloudStatus>("cloud_status"),
+  cloudLink: (code: string) => call<CloudStatus>("cloud_link", { code }),
+  cloudUnlink: () => call<CloudStatus>("cloud_unlink"),
+  cloudResendAll: () => call<CloudStatus>("cloud_resend_all"),
+  cloudSetBackupPassword: (password: string) => call<CloudStatus>("cloud_set_backup_password", { password }),
+  cloudSyncNow: () => call<CloudActionResult>("cloud_sync_now"),
+  cloudBackupNow: () => call<CloudActionResult>("cloud_backup_now"),
 
   // printing (receipt content is built by the backend)
   listPrinters: () => call<string[]>("list_printers"),

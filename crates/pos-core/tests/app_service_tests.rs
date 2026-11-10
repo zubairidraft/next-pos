@@ -341,42 +341,73 @@ fn demo_catalog_receipt_low_stock_and_z_report() {
 }
 
 #[test]
-fn cloud_sync_is_off_until_owner_turns_it_on() {
+fn cloud_sends_nothing_until_the_owner_links_the_shop() {
+    use pos_core::app::cloud::{parse_link_code, CloudLinkTarget};
     let (mut app, _d) = fresh();
     setup(&mut app);
     let v = add_product(&app, "SKU9", 1_000, "8961000000097", None);
     stock(&mut app, &v, 2);
     app.start_shift(0).unwrap();
     let unit = pc_unit(&app);
-    app.checkout(CheckoutInput {
+    let sale = app.checkout(CheckoutInput {
         customer_id: None,
-        lines: vec![CheckoutLineInput { variant_id: v, unit_id: unit, qty_milli: 1000, discount_paisa: 0, price_override_paisa: None }],
+        lines: vec![CheckoutLineInput { variant_id: v.clone(), unit_id: unit.clone(), qty_milli: 1000, discount_paisa: 0, price_override_paisa: None }],
         global_discount_paisa: 0, tenders: cash(1_000), approval: None,
     }).unwrap();
 
-    let st = app.cloud_settings().unwrap();
-    assert!(!st.enabled);
-    assert_eq!(st.pending_events, 1);
-    assert!(app.cloud_batch().unwrap().is_none(), "nothing may be sent while sync is off");
+    // Not linked: nothing is noted, nothing can be sent.
+    let st = app.cloud_status().unwrap();
+    assert!(!st.linked);
+    assert_eq!(st.pending, 0);
+    assert!(app.cloud_next_batch(500).unwrap().is_none());
 
-    assert!(app.save_cloud_settings(CloudSettingsInput { enabled: true, url: None, api_key: None }).is_err());
-    assert!(app.save_cloud_settings(CloudSettingsInput { enabled: false, url: Some("http://plain.example.com".into()), api_key: None }).is_err());
-    let st = app.save_cloud_settings(CloudSettingsInput { enabled: true, url: Some("https://x.supabase.co/".into()), api_key: Some("k".into()) }).unwrap();
-    assert!(st.enabled && st.key_set && st.consent_at.is_some());
+    // Link codes: only real ones are accepted.
+    assert!(parse_link_code("hello").is_err());
+    use base64::Engine;
+    let enc = |j: &str| format!("NPC1.{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(j));
+    assert!(parse_link_code(&enc(r#"{"u":"http://evil.example.com","a":"k","c":"x"}"#)).is_err(), "plain http is refused");
+    let target = parse_link_code(&enc(r#"{"u":"https://abc.supabase.co/","a":"anon","c":"123456"}"#)).unwrap();
+    assert_eq!(target, CloudLinkTarget { url: "https://abc.supabase.co".into(), anon_key: "anon".into(), code: "123456".into() });
 
-    let b = app.cloud_batch().unwrap().unwrap();
-    assert_eq!(b.url, "https://x.supabase.co");
-    assert_eq!(b.event_ids.len(), 1);
-    app.cloud_mark_synced(&b.event_ids).unwrap();
-    assert_eq!(app.cloud_settings().unwrap().pending_events, 0);
+    // Linked: the whole shop is queued for the first upload, secrets are never in it.
+    let st = app.cloud_finish_link(&target, "shop-1", "secret-key").unwrap();
+    assert!(st.linked && st.pending > 10);
+    let mut all = Vec::new();
+    loop {
+        let b = app.cloud_next_batch(25).unwrap().unwrap();
+        assert_eq!((b.shop_id.as_str(), b.shop_key.as_str(), b.url.as_str()), ("shop-1", "secret-key", "https://abc.supabase.co"));
+        all.extend(b.rows.clone());
+        app.cloud_ack(b.upto_seq).unwrap();
+        if !b.more { break; }
+    }
+    assert_eq!(app.cloud_status().unwrap().pending, 0);
+    assert!(app.cloud_next_batch(500).unwrap().is_none());
+    let text = serde_json::to_string(&all).unwrap();
+    assert!(!text.contains("password_hash") && !text.contains("pin_hash") && !text.contains("secret-key"), "no secrets leave the PC");
+    assert!(all.iter().any(|r| r["t"] == "sales" && r["d"]["doc_no"] == sale.sale.doc_no));
+    assert!(all.iter().any(|r| r["t"] == "users" && r["d"]["username"] == "owner"));
 
-    // A cashier can neither see nor change the cloud settings.
+    // A return after linking is a new row; nothing about the sale is lost.
+    app.update_price(&v, 1_200, None).unwrap();
+    let b = app.cloud_next_batch(500).unwrap().unwrap();
+    assert!(b.rows.iter().any(|r| r["t"] == "prices" && r["op"] == "u"));
+    app.cloud_ack(b.upto_seq).unwrap();
+
+    // Unlink: sending stops and the key is forgotten.
+    let st = app.cloud_unlink().unwrap();
+    assert!(!st.linked && st.pending == 0);
+    app.update_price(&v, 1_300, None).unwrap();
+    assert_eq!(app.cloud_status().unwrap().pending, 0);
+    assert!(app.cloud_next_batch(500).unwrap().is_none());
+
+    // A cashier cannot see or change it.
     app.create_user(NewUserInput { username: "ali".into(), password: "cashier-pass".into(), pin: Some("5555".into()), role: Role::Cashier }).unwrap();
     app.logout().unwrap();
     let ali = app.status().unwrap().users.into_iter().find(|u| u.username == "ali").unwrap();
     app.login_pin(&ali.id, "5555").unwrap();
-    assert!(app.cloud_settings().is_err());
-    assert!(app.cloud_batch().is_err());
+    assert!(app.cloud_status().is_err());
+    assert!(app.cloud_finish_link(&target, "s", "k").is_err());
+    assert!(app.cloud_set_backup_password("12345678").is_err());
 }
 
 #[test]

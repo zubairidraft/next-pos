@@ -32,7 +32,11 @@ use serde::Serialize;
 use pos_core::app::lan::{LanDevice, LanHub, SharedApp};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod cloud;
 mod printer;
+
+/// Where the shop database lives (the cloud backup writes its temp file there).
+struct DataDir(std::path::PathBuf);
 
 /// The app, or the reason it could not open the database (shown on screen).
 /// Shared with the phone link, which runs phones' commands on the same app.
@@ -612,59 +616,6 @@ fn cut_paper(core: State<Core>, printer_name: Option<String>) -> R<()> {
     printer::cut_paper(printer_name.as_deref()).map_err(|e| format!("Paper cut failed: {}", e))
 }
 
-// ------------------------------------------------------------ cloud sync (Owner opt-in)
-
-#[derive(Serialize)]
-struct CloudSyncResult {
-    synced_count: usize,
-    message: String,
-}
-
-#[tauri::command(rename_all = "snake_case")]
-fn cloud_settings(core: State<Core>) -> R<CloudSettingsView> {
-    with(&core, |a| a.cloud_settings())
-}
-
-#[tauri::command(rename_all = "snake_case")]
-fn save_cloud_settings(core: State<Core>, input: CloudSettingsInput) -> R<CloudSettingsView> {
-    with(&core, |a| a.save_cloud_settings(input))
-}
-
-/// Sends unsent events only when the Owner has turned sync on. The URL and key
-/// come from the encrypted database, never from the code or the screen.
-#[tauri::command(rename_all = "snake_case")]
-async fn sync_to_cloud(core: State<'_, Core>) -> R<CloudSyncResult> {
-    let batch = with(&core, |a| a.cloud_batch())?;
-    let Some(batch) = batch else {
-        return Ok(CloudSyncResult { synced_count: 0, message: "Cloud sync is off. The Owner can turn it on in Backup settings.".into() });
-    };
-    if batch.events.is_empty() {
-        return Ok(CloudSyncResult { synced_count: 0, message: "Nothing new to sync.".into() });
-    }
-    let body = serde_json::json!({
-        "p_shop_id": batch.shop_id,
-        "p_shop_name": batch.shop_name,
-        "p_events": batch.events,
-    });
-    let res = reqwest::Client::new()
-        .post(format!("{}/rest/v1/rpc/sync_shop_events", batch.url))
-        .header("apikey", &batch.api_key)
-        .header("Authorization", format!("Bearer {}", batch.api_key))
-        .json(&body)
-        .timeout(Duration::from_secs(30))
-        .send()
-        .await
-        .map_err(|e| format!("Could not reach the cloud server: {}", e))?;
-    if !res.status().is_success() {
-        let status = res.status();
-        let text = res.text().await.unwrap_or_default();
-        return Err(format!("Cloud server refused the sync ({}): {}", status, text.chars().take(300).collect::<String>()));
-    }
-    let n = batch.event_ids.len();
-    with(&core, |a| a.cloud_mark_synced(&batch.event_ids))?;
-    Ok(CloudSyncResult { synced_count: n, message: format!("Synced {} events.", n) })
-}
-
 // ------------------------------------------------------------ phones (shop WiFi)
 
 /// The phone link while it runs, and why it could not start (if so).
@@ -849,12 +800,16 @@ fn main() {
 
     tauri::Builder::default()
         .manage(Core(Arc::new(Mutex::new(opened))))
+        .manage(Arc::new(cloud::CloudRunner::new()))
+        .manage(DataDir(data_dir.clone()))
         .manage(Phones { hub: Mutex::new(None), error: Mutex::new(None), security_dir: data_dir.join("security") })
         .setup(move |app| {
             // Phones on the shop WiFi (only if the Owner turned it on).
             if phones_on {
                 start_phone_link(app.handle());
             }
+            // Next POS Cloud: sends changes in the background (only once the Owner linked the shop).
+            cloud::start(app.handle(), data_dir.clone());
             // Automatic encrypted snapshot every 30 minutes (keeps 48 recent + 30 daily).
             let handle = app.handle().clone();
             std::thread::spawn(move || loop {
@@ -889,7 +844,7 @@ fn main() {
             license_info, install_license, default_backup_dir, create_backup, list_backups, verify_backup, restore_backup,
             low_stock, create_snapshot, list_snapshots,
             list_printers, print_receipt, print_z_report, print_test_receipt, kick_drawer, cut_paper,
-            cloud_settings, save_cloud_settings, sync_to_cloud,
+            cloud::cloud_status, cloud::cloud_link, cloud::cloud_unlink, cloud::cloud_resend_all, cloud::cloud_set_backup_password, cloud::cloud_sync_now, cloud::cloud_backup_now,
             post_purchase_return, list_purchase_returns, create_claim, update_claim, list_claims, report, save_export, open_exports_folder, import_products_file,
             phones_status, set_phones_enabled, phone_pairing_qr, cancel_phone_pairing, list_phones, remove_phone,
             list_sales, sale_detail, sale_revision, quote_sale_edit, edit_sale,

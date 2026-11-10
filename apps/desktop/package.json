@@ -9,10 +9,13 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "dev:mobile": "vite --config vite.mobile.config.ts",
-    "build:mobile": "tsc && vite build --config vite.mobile.config.ts"
+    "build:mobile": "tsc && vite build --config vite.mobile.config.ts",
+    "dev:admin": "vite --config vite.admin.config.ts",
+    "build:admin": "tsc && vite build --config vite.admin.config.ts"
   },
   "dependencies": {
     "@fontsource/noto-nastaliq-urdu": "^5.3.0",
+    "@supabase/supabase-js": "^2.57.4",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-barcode-scanner": "^2.5.3",
     "clsx": "^2.1.1",

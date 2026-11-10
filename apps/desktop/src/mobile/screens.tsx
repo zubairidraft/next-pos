@@ -992,32 +992,55 @@ function TodaySummary() {
 export function ReportsScreen() {
   const { can } = useSession();
   const [kind, setKind] = useState<string | null>(null);
-  const groups = REPORT_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !i.owner || can("SettingsManage")) })).filter((g) => g.items.length);
-  const current = groups.flatMap((g) => g.items).find((i) => i.kind === kind);
+  const items = REPORT_GROUPS.flatMap((g) => g.items).filter((i) => !i.owner || can("SettingsManage"));
+  const current = items.find((i) => i.kind === kind);
   if (kind && current) return <ReportDetail kind={kind} label={current.label} onBack={() => setKind(null)} />;
   return (
     <div>
       <TodaySummary />
-      <div className="px-4 pb-6 space-y-3">
-        <h2 className="font-bold text-lg">All reports</h2>
-        {groups.map((g) => (
-          <div key={g.title} className={`${card} divide-y divide-slate-100 dark:divide-slate-800`}>
-            <div className="px-4 pt-3 pb-1 text-[11px] uppercase tracking-wide font-bold text-slate-400">{g.title}</div>
-            {g.items.map((i) => (
-              <button key={i.kind} onClick={() => setKind(i.kind)} className="w-full text-left px-4 py-3 flex items-center justify-between font-semibold">
-                {i.label}
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </button>
-            ))}
-          </div>
-        ))}
-      </div>
+      <ReportMenu ownerReports={can("SettingsManage")} onPick={setKind} />
     </div>
   );
 }
 
+/** Every report, grouped like the PC (used by the shop link and by Next POS Cloud). */
+export function ReportMenu({ ownerReports, onPick }: { ownerReports: boolean; onPick: (kind: string) => void }) {
+  const groups = REPORT_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !i.owner || ownerReports) })).filter((g) => g.items.length);
+  return (
+    <div className="px-4 pb-6 space-y-3">
+      <h2 className="font-bold text-lg">All reports</h2>
+      {groups.map((g) => (
+        <div key={g.title} className={`${card} divide-y divide-slate-100 dark:divide-slate-800`}>
+          <div className="px-4 pt-3 pb-1 text-[11px] uppercase tracking-wide font-bold text-slate-400">{g.title}</div>
+          {g.items.map((i) => (
+            <button key={i.kind} onClick={() => onPick(i.kind)} className="w-full text-left px-4 py-3 flex items-center justify-between font-semibold">
+              {i.label}
+              <ChevronRight className="w-4 h-4 text-slate-400" />
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const reportFromPc = (kind: string, from: string, to: string) => api.report(kind, from, to);
+
 /** One report for a from – to period, with search, summary and the full table. */
-function ReportDetail({ kind, label, onBack }: { kind: string; label: string; onBack: () => void }) {
+export function ReportDetail({
+  kind,
+  label,
+  onBack,
+  load = reportFromPc,
+  subtitle,
+}: {
+  kind: string;
+  label: string;
+  onBack: () => void;
+  /** Where the report comes from: the shop PC (default) or Next POS Cloud. */
+  load?: (kind: string, from: string, to: string) => Promise<ReportTable>;
+  subtitle?: string;
+}) {
   const toast = useToast();
   const [from, setFrom] = useState(() => quickRange("today")[0]);
   const [to, setTo] = useState(() => quickRange("today")[1]);
@@ -1032,7 +1055,7 @@ function ReportDetail({ kind, label, onBack }: { kind: string; label: string; on
       if (f > t) return toast.error("The 'from' date is after the 'to' date.");
       setLoading(true);
       try {
-        setTable(await api.report(kind, new Date(`${f}T00:00:00`).toISOString(), endOf(t)));
+        setTable(await load(kind, new Date(`${f}T00:00:00`).toISOString(), endOf(t)));
       } catch (e) {
         setTable(null);
         toast.error(errorText(e));
@@ -1040,12 +1063,13 @@ function ReportDetail({ kind, label, onBack }: { kind: string; label: string; on
         setLoading(false);
       }
     },
-    [kind, toast]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [kind, toast, load]
   );
   useEffect(() => {
     run(from, to);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind]);
+  }, [kind, load]);
 
   const statusCol = table?.columns.findIndex((c) => c.key === "status") ?? -1;
   const shown = useMemo(() => {
@@ -1065,7 +1089,10 @@ function ReportDetail({ kind, label, onBack }: { kind: string; label: string; on
     <div className="p-4 space-y-3 pb-8">
       <div className="flex items-center gap-2">
         <button onClick={onBack} aria-label="Back to reports" className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center"><ArrowLeft className="w-5 h-5" /></button>
-        <h2 className="font-bold text-lg flex-1 truncate">{label}</h2>
+        <div className="flex-1 min-w-0">
+          <h2 className="font-bold text-lg truncate">{label}</h2>
+          {subtitle && <div className="text-xs text-slate-500 truncate">{subtitle}</div>}
+        </div>
         {loading && <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />}
       </div>
 

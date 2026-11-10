@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   BarChart3,
+  Cloud,
   Boxes,
   Delete,
   Loader2,
@@ -24,6 +25,8 @@ import { useToast } from "../lib/toast";
 import { link, LINK_EVENT, LinkError, LinkInfo, LinkState } from "./link";
 import { scanWithCamera } from "./camera";
 import { PurchaseScreen, ReportsScreen, SaleScreen, ScannerScreen, StockScreen } from "./screens";
+import { CloudReports } from "./cloudReports";
+import { cloudConfigured } from "../lib/cloud";
 
 export const card = "bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm";
 export const bigBtn = "w-full py-3.5 rounded-2xl text-base font-bold flex items-center justify-center gap-2 disabled:opacity-40 active:scale-[0.99] transition";
@@ -33,6 +36,8 @@ export function MobileRoot() {
   const toast = useToast();
   const [info, setInfo] = useState<LinkInfo | null | undefined>(undefined);
   const [linkState, setLinkState] = useState<LinkState>("online");
+  // Reports over the internet (Next POS Cloud), from anywhere.
+  const [cloud, setCloud] = useState(false);
 
   useEffect(() => {
     link.info().then(setInfo).catch(() => setInfo(null));
@@ -53,11 +58,12 @@ export function MobileRoot() {
     return () => window.removeEventListener(LINK_EVENT, f);
   }, [toast]);
 
+  if (cloud) return <CloudReports onBack={() => setCloud(false)} />;
   if (info === undefined) return <FullSpinner />;
-  if (!info) return <PairScreen onPaired={setInfo} />;
+  if (!info) return <PairScreen onPaired={setInfo} onCloud={() => setCloud(true)} />;
   return (
     <SessionProvider key={info.device_id}>
-      <MobileShell info={info} linkState={linkState} onDisconnected={() => setInfo(null)} />
+      <MobileShell info={info} linkState={linkState} onDisconnected={() => setInfo(null)} onCloud={() => setCloud(true)} />
     </SessionProvider>
   );
 }
@@ -78,7 +84,7 @@ function TestBadge() {
 
 // ------------------------------------------------------------ pairing
 
-function PairScreen({ onPaired }: { onPaired: (i: LinkInfo) => void }) {
+function PairScreen({ onPaired, onCloud }: { onPaired: (i: LinkInfo) => void; onCloud: () => void }) {
   const toast = useToast();
   const [name, setName] = useState(() => {
     try {
@@ -135,6 +141,11 @@ function PairScreen({ onPaired }: { onPaired: (i: LinkInfo) => void }) {
         <button onClick={pair} disabled={busy} className={`${bigBtn} bg-white text-emerald-700`}>
           {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" />} Scan PC code
         </button>
+        {cloudConfigured && (
+          <button onClick={onCloud} className={`${bigBtn} bg-white/15 text-white`}>
+            <Cloud className="w-5 h-5" /> Reports from anywhere (Cloud)
+          </button>
+        )}
       </div>
       <TestBadge />
     </div>
@@ -152,7 +163,7 @@ const TABS: { id: Tab; label: string; icon: typeof ShoppingCart; perm: Permissio
   { id: "reports", label: "Reports", icon: BarChart3, perm: "ReportsView" },
 ];
 
-function MobileShell({ info, linkState, onDisconnected }: { info: LinkInfo; linkState: LinkState; onDisconnected: () => void }) {
+function MobileShell({ info, linkState, onDisconnected, onCloud }: { info: LinkInfo; linkState: LinkState; onDisconnected: () => void; onCloud: () => void }) {
   const toast = useToast();
   const { loading, startupError, status, session, refresh, logout, can } = useSession();
   const [tab, setTab] = useState<Tab>("sale");
@@ -229,6 +240,9 @@ function MobileShell({ info, linkState, onDisconnected }: { info: LinkInfo; link
         {session && (
           <button onClick={() => { setMenu(false); logout(); }} className="w-full text-left px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 font-semibold flex items-center gap-2"><LogOut className="w-4 h-4" /> Log out</button>
         )}
+        {cloudConfigured && (
+          <button onClick={() => { setMenu(false); onCloud(); }} className="w-full text-left px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 font-semibold flex items-center gap-2"><Cloud className="w-4 h-4" /> Reports over the internet (all shops)</button>
+        )}
         <button onClick={disconnect} className="w-full text-left px-4 py-3 rounded-xl bg-rose-50 text-rose-700 font-semibold flex items-center gap-2"><Unlink className="w-4 h-4" /> Disconnect from shop</button>
       </div>
     </div>
@@ -245,6 +259,9 @@ function MobileShell({ info, linkState, onDisconnected }: { info: LinkInfo; link
           <p className="text-sm text-slate-500">{startupError?.replace(/^PC_OFFLINE: /, "") || "Check the WiFi."}</p>
           <p className="text-xs text-slate-400">The phone must be on the shop WiFi and Next POS must be open on the PC.</p>
           <button onClick={refresh} className={`${bigBtn} bg-emerald-600 text-white`}><RefreshCw className="w-5 h-5" /> Try again</button>
+          {cloudConfigured && (
+            <button onClick={onCloud} className={`${bigBtn} bg-slate-100 dark:bg-slate-800`}><Cloud className="w-5 h-5" /> Reports over the internet</button>
+          )}
         </div>
       </div>
     );

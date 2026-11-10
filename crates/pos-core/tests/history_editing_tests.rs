@@ -1393,7 +1393,7 @@ fn test_21_migration_v10_to_v11() {
 
     // Run migrations to V11
     run_migrations(&mut conn).unwrap();
-    assert_eq!(schema_version(&conn), 11);
+    assert!(schema_version(&conn) >= 11);
 
     // Verify revision column exists and default is 0
     let sale_rev: (i64, Option<String>, Option<String>) = conn
