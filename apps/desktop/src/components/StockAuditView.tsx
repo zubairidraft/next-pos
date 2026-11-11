@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ClipboardCheck, Loader2, Play, Save, Search, Tag } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, FileSpreadsheet, FileText, Loader2, Play, Save, Search, Tag } from "lucide-react";
 import { api, errorText, formatPkr, formatQty, InventoryBalanceView, StockCountSession } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { useToast } from "../lib/toast";
 import { useRemoteScan } from "../lib/remoteScan";
 import { BarcodeLabelsModal } from "./BarcodeLabelsModal";
+import { countSheetPdf, countSheetXlsx, saveFile } from "../lib/exporter";
 
 /**
  * Physical stock count. Counts are saved as you go; applying the count posts
@@ -12,13 +13,14 @@ import { BarcodeLabelsModal } from "./BarcodeLabelsModal";
  */
 export function StockAuditView() {
   const toast = useToast();
-  const { can } = useSession();
+  const { can, status } = useSession();
   const [session, setSession] = useState<StockCountSession | null | undefined>(undefined);
   const [stock, setStock] = useState<InventoryBalanceView[]>([]);
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
+  const [sheetBusy, setSheetBusy] = useState<"" | "pdf" | "xlsx">("");
 
   const load = async () => {
     try {
@@ -45,6 +47,26 @@ export function StockAuditView() {
 
   // A paired phone's camera finds the product in the list, like a USB scanner.
   useRemoteScan((scanned) => setQ(scanned), !!session);
+
+  // A sheet to count on paper, in the same order as this screen; then type the counts in here.
+  const countSheet = async (fmt: "pdf" | "xlsx") => {
+    setSheetBusy(fmt);
+    try {
+      const items = stock.map((r) => ({ name: r.product_name, sku: r.sku, barcode: r.barcode, unit: r.unit_code }));
+      const store = status?.store_name || "";
+      const info = { store, doc: session?.doc_no || null };
+      const data = fmt === "pdf" ? await countSheetPdf(items, info) : await countSheetXlsx(items, info);
+      const d = new Date();
+      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const name = `${`${store ? store + " - " : ""}Stock count sheet ${day}`.replace(/[^A-Za-z0-9 _-]/g, "").trim()}.${fmt}`;
+      const where = await saveFile(name, data, fmt === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      toast.success(where ? `Saved: ${where}` : `${name} downloaded`);
+    } catch (e) {
+      toast.error(`Export failed: ${errorText(e)}`);
+    } finally {
+      setSheetBusy("");
+    }
+  };
 
   const start = async () => {
     try {
@@ -100,7 +122,13 @@ export function StockAuditView() {
           <h2 className="text-xl font-bold flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-amber-500" /> Stock count</h2>
           <p className="text-xs text-slate-500">{session ? `Count ${session.doc_no} started ${new Date(session.started_at).toLocaleString()}` : "Count the shelves and correct the stock."}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => countSheet("pdf")} disabled={!!sheetBusy || stock.length === 0} title="Count sheet to print and fill by hand" className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 disabled:opacity-40 text-xs font-semibold flex items-center gap-1">
+            {sheetBusy === "pdf" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} Count sheet PDF
+          </button>
+          <button onClick={() => countSheet("xlsx")} disabled={!!sheetBusy || stock.length === 0} title="Count sheet in Excel" className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 disabled:opacity-40 text-xs font-semibold flex items-center gap-1">
+            {sheetBusy === "xlsx" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} Count sheet Excel
+          </button>
           <button onClick={() => setLabelsOpen(true)} className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold flex items-center gap-1"><Tag className="w-4 h-4" /> Shelf labels</button>
           {session && (
             <>
@@ -120,7 +148,7 @@ export function StockAuditView() {
       {session === undefined && <Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" />}
       {session === null && (
         <div className="text-center py-12">
-          <p className="text-sm text-slate-500 mb-4">No count is open.</p>
+          <p className="text-sm text-slate-500 mb-4">No count is open. Print a count sheet, count the shelves on paper, then start a count and type the numbers in.</p>
           <button onClick={start} className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold inline-flex items-center gap-2"><Play className="w-4 h-4" /> Start a stock count</button>
         </div>
       )}

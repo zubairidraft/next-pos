@@ -1,6 +1,7 @@
 pub mod app;
 pub mod auth;
 pub mod backup;
+pub mod branches;
 pub mod db;
 pub mod domain;
 pub mod error;

@@ -860,6 +860,22 @@ export interface ReportTable {
   note: string | null;
 }
 
+// ---------------------------------------------------------------- branches on this PC
+
+export interface Branch {
+  id: string;
+  /** The branch's shop name ("" until it is set up). */
+  name: string;
+}
+
+export interface BranchesInfo {
+  /** The open branch (null for a data folder outside the list). */
+  current: string | null;
+  /** This window was opened for a particular branch: no picker. */
+  chosen: boolean;
+  list: Branch[];
+}
+
 // ---------------------------------------------------------------- phones on the shop WiFi
 
 export interface PhonesStatus {
@@ -1130,6 +1146,11 @@ export const api = {
   createUser: (input: NewUserInput) => call<UserSummary>("create_user", { input }),
   setPin: (new_pin: string, user_id?: string | null) => call<void>("set_pin", { user_id: user_id ?? null, new_pin }),
   setUserActive: (user_id: string, active: boolean) => call<void>("set_user_active", { user_id, active }),
+
+  // branches on this PC (desktop app only)
+  branches: () => call<BranchesInfo>("branches"),
+  branchOpen: (id: string) => call<void>("branch_open", { id }),
+  branchCreate: (name: string) => call<Branch>("branch_create", { name }),
 
   // settings / system
   getSettings: () => call<BusinessSettings>("get_settings"),

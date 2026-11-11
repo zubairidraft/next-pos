@@ -24,7 +24,8 @@ import { deliverRemoteScan } from "./lib/remoteScan";
 import { useToast } from "./lib/toast";
 import { SystemDiagnosticsModal } from "./components/SystemDiagnosticsModal";
 import { PrinterSettingsModal } from "./components/PrinterSettingsModal";
-import { isBrowserTest, licenseLabel, onRemoteScan, Permission } from "./lib/api";
+import { BranchesModal, BranchPicker, ShopNameModal } from "./components/BranchViews";
+import { api, BranchesInfo, isBrowserTest, isTauri, licenseLabel, onRemoteScan, Permission } from "./lib/api";
 import {
   Activity,
   AlertTriangle,
@@ -49,6 +50,7 @@ import {
   ShoppingCart,
   ShieldCheck,
   Smartphone,
+  Store,
   Sun,
   Tag,
   Truck,
@@ -91,6 +93,8 @@ function Shell() {
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const [isPrinterOpen, setIsPrinterOpen] = useState(false);
+  const [isBranchesOpen, setIsBranchesOpen] = useState(false);
+  const [isShopNameOpen, setIsShopNameOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const [reportKind, setReportKind] = useState("daily");
   const toast = useToast();
@@ -286,6 +290,16 @@ function Shell() {
                     </button>
                   )}
                   {can("SettingsManage") && (
+                    <button onClick={() => { setIsShopNameOpen(true); setOpenMenu(null); }} className={menuItem}>
+                      <Store className="w-3.5 h-3.5 text-emerald-500" /> Shop name
+                    </button>
+                  )}
+                  {can("SettingsManage") && (
+                    <button onClick={() => { setIsBranchesOpen(true); setOpenMenu(null); }} className={menuItem}>
+                      <Store className="w-3.5 h-3.5 text-emerald-500" /> Branches
+                    </button>
+                  )}
+                  {can("SettingsManage") && (
                     <button onClick={() => { setIsPrinterOpen(true); setOpenMenu(null); }} className={menuItem}>
                       <Printer className="w-3.5 h-3.5 text-emerald-500" /> Printer & cash drawer
                     </button>
@@ -372,14 +386,25 @@ function Shell() {
       <BulkImportModal isOpen={isBulkImportOpen} onClose={() => setIsBulkImportOpen(false)} />
       <SystemDiagnosticsModal isOpen={isDiagnosticsOpen} onClose={() => setIsDiagnosticsOpen(false)} />
       <PrinterSettingsModal isOpen={isPrinterOpen} onClose={() => setIsPrinterOpen(false)} />
+      <BranchesModal isOpen={isBranchesOpen} onClose={() => setIsBranchesOpen(false)} />
+      <ShopNameModal isOpen={isShopNameOpen} onClose={() => setIsShopNameOpen(false)} />
     </div>
   );
 }
 
-/** Decides what to show: startup error → first-run setup → login → the app. */
+/** Decides what to show: branch choice → startup error → first-run setup → login → the app. */
 function Gate() {
   const { loading, startupError, status, session } = useSession();
-  if (loading) {
+  // More than one branch on this PC: choose one when the app starts.
+  const [branches, setBranches] = useState<BranchesInfo | null | undefined>(isTauri || isBrowserTest ? undefined : null);
+  useEffect(() => {
+    if (branches !== undefined) return;
+    api.branches().then(setBranches).catch(() => setBranches(null));
+  }, [branches]);
+  if (branches && !branches.chosen && branches.list.length > 1) {
+    return <BranchPicker info={branches} onStay={() => setBranches(null)} />;
+  }
+  if (loading || branches === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950 text-slate-500">
         <Loader2 className="w-6 h-6 animate-spin" />

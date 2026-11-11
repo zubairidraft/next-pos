@@ -289,3 +289,113 @@ export async function productsXlsx(rows: (string | number | null)[][]): Promise<
   [8, 9, 13].forEach((c) => (ws.getColumn(c).numFmt = "#,##0.00"));
   return wb.xlsx.writeBuffer();
 }
+
+// ------------------------------------------------------------ stock count sheet (count on paper, then type in)
+
+export interface CountSheetItem {
+  name: string;
+  sku: string;
+  barcode: string | null;
+  unit: string;
+}
+
+export interface CountSheetInfo {
+  store: string;
+  /** The open count's number, if one is open. */
+  doc: string | null;
+}
+
+const SHEET_HEAD = ["#", "Product", "SKU", "Barcode", "Unit", "Counted", "Note"];
+
+function sheetSubtitle(info: CountSheetInfo) {
+  return `${info.doc ? `Count ${info.doc} · ` : ""}Printed ${formatCell(new Date().toISOString(), "datetime")}`;
+}
+
+/** Printable sheet in the same order as the Stock count screen, with empty boxes to write in. */
+export async function countSheetPdf(items: CountSheetItem[], info: CountSheetInfo): Promise<ArrayBuffer> {
+  const { jsPDF } = await import("jspdf");
+  const { autoTable } = await import("jspdf-autotable");
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 12;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.text(info.store || "Next POS", margin, 15);
+  doc.setFontSize(12);
+  doc.text("Stock count sheet", margin, 22);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(90);
+  doc.text(sheetSubtitle(info), margin, 27.5);
+  doc.setTextColor(0);
+  doc.setFontSize(9.5);
+  doc.text("Counted by: ______________________", margin, 35);
+  doc.text("Date: ______________", pageW - margin, 35, { align: "right" });
+
+  autoTable(doc, {
+    startY: 40,
+    margin: { left: margin, right: margin, bottom: 16 },
+    head: [SHEET_HEAD],
+    body: items.map((it, i) => [String(i + 1), it.name, it.sku, it.barcode || "", it.unit, "", ""]),
+    theme: "grid",
+    styles: { font: "helvetica", fontSize: 8.5, cellPadding: 1.8, minCellHeight: 8.5, valign: "middle", lineColor: [190, 190, 190], lineWidth: 0.2 },
+    headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: "bold" },
+    columnStyles: {
+      0: { cellWidth: 9, halign: "right" },
+      2: { cellWidth: 31 },
+      3: { cellWidth: 28 },
+      4: { cellWidth: 12 },
+      5: { cellWidth: 24 },
+      6: { cellWidth: 22 },
+    },
+    didDrawPage: () => {
+      const n = doc.getNumberOfPages();
+      doc.setFontSize(7.5);
+      doc.setTextColor(130);
+      doc.text(`Stock count sheet · ${info.store || "Next POS"}`, margin, pageH - 7);
+      doc.text(`Page ${n}`, pageW - margin, pageH - 7, { align: "right" });
+      doc.setTextColor(0);
+    },
+  });
+  if (!items.length) {
+    doc.setFontSize(10);
+    doc.text("No products to count.", margin, 54);
+  }
+  return doc.output("arraybuffer");
+}
+
+/** The same sheet in Excel (print it, or fill the Counted column on a laptop). */
+export async function countSheetXlsx(items: CountSheetItem[], info: CountSheetInfo): Promise<ArrayBuffer> {
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Next POS";
+  wb.created = new Date();
+  const ws = wb.addWorksheet("Count sheet", {
+    views: [{ state: "frozen", ySplit: 5 }],
+    pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: "5:5" },
+  });
+  ws.addRow([info.store || "Next POS"]).font = { bold: true, size: 14 };
+  ws.addRow(["Stock count sheet"]).font = { bold: true, size: 12 };
+  ws.addRow([sheetSubtitle(info)]).font = { color: { argb: "FF666666" } };
+  ws.addRow(["Counted by:", "", "", "Date:"]).font = { bold: true };
+  const head = ws.addRow(SHEET_HEAD);
+  head.eachCell((c) => {
+    c.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF059669" } };
+  });
+  const thin = { style: "thin" as const, color: { argb: "FFBFBFBF" } };
+  items.forEach((it, i) => {
+    const row = ws.addRow([i + 1, it.name, it.sku, it.barcode || "", it.unit, null, null]);
+    row.height = 20;
+    row.eachCell({ includeEmpty: true }, (c) => {
+      c.border = { top: thin, bottom: thin, left: thin, right: thin };
+      c.alignment = { vertical: "middle" };
+    });
+  });
+  [6, 34, 16, 18, 8, 14, 18].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  ws.getColumn(4).numFmt = "@";
+  ws.getColumn(6).numFmt = "#,##0.###";
+  return wb.xlsx.writeBuffer();
+}

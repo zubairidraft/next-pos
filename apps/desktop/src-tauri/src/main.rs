@@ -38,6 +38,14 @@ mod printer;
 /// Where the shop database lives (the cloud backup writes its temp file there).
 struct DataDir(std::path::PathBuf);
 
+/// Branches on this PC: the list lives in the first branch's folder.
+/// `chosen` = this window was opened for a particular branch (no picker).
+struct Branches {
+    base: std::path::PathBuf,
+    current: std::path::PathBuf,
+    chosen: bool,
+}
+
 /// The app, or the reason it could not open the database (shown on screen).
 /// Shared with the phone link, which runs phones' commands on the same app.
 struct Core(SharedApp);
@@ -86,6 +94,57 @@ fn app_status(core: State<Core>) -> StartupInfo {
         },
         Err(e) => StartupInfo { ok: false, error: Some(e.clone()), status: None },
     }
+}
+
+// ------------------------------------------------------------ branches
+
+#[derive(Serialize)]
+struct BranchesInfo {
+    current: Option<String>,
+    chosen: bool,
+    list: Vec<pos_core::branches::Branch>,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn branches(core: State<Core>, b: State<Branches>) -> BranchesInfo {
+    let reg = pos_core::branches::BranchRegistry::new(&b.base);
+    let current = reg.id_of_dir(&b.current);
+    // The list shows each branch by its shop name.
+    if let Some(id) = &current {
+        let name = core.0.lock().ok().and_then(|g| g.as_ref().ok().and_then(|a| a.status().ok()).and_then(|s| s.store_name));
+        if let Some(n) = name.filter(|n| !n.trim().is_empty()) {
+            let _ = reg.set_name(id, &n);
+        }
+    }
+    BranchesInfo { current, chosen: b.chosen, list: reg.list() }
+}
+
+/// Opens another branch: this window closes and the app opens again with that branch's data.
+#[tauri::command(rename_all = "snake_case")]
+fn branch_open(app: AppHandle, core: State<Core>, b: State<Branches>, id: String) -> R<()> {
+    let reg = pos_core::branches::BranchRegistry::new(&b.base);
+    let dir = reg.dir_of(&id).map_err(|e| e.to_string())?;
+    if reg.id_of_dir(&b.current).as_deref() == Some(id.as_str()) {
+        return Ok(());
+    }
+    let exe = std::env::current_exe().map_err(|e| format!("Could not open the branch: {}", e))?;
+    // Close this branch's database before the other window starts.
+    if let Ok(mut g) = core.0.lock() {
+        *g = Err("Switching branch…".into());
+    }
+    std::process::Command::new(exe)
+        .env("NEXTPOS_DATA_DIR", &dir)
+        .spawn()
+        .map_err(|e| format!("Could not open the branch: {}", e))?;
+    app.exit(0);
+    Ok(())
+}
+
+/// A new, empty branch (Owner). It is set up the first time it is opened.
+#[tauri::command(rename_all = "snake_case")]
+fn branch_create(core: State<Core>, b: State<Branches>, name: String) -> R<pos_core::branches::Branch> {
+    with(&core, |a| a.check_permission(pos_core::auth::Permission::SettingsManage))?;
+    pos_core::branches::BranchRegistry::new(&b.base).create(&name).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -792,9 +851,8 @@ fn update_product(core: State<Core>, input: UpdateProductInput) -> R<ProductSear
 }
 
 fn main() {
-    let data_dir = std::env::var("NEXTPOS_DATA_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| PosApp::default_data_dir());
+    let chosen_dir = std::env::var("NEXTPOS_DATA_DIR").ok().filter(|d| !d.trim().is_empty());
+    let data_dir = chosen_dir.clone().map(std::path::PathBuf::from).unwrap_or_else(PosApp::default_data_dir);
     let opened = PosApp::open(&data_dir).map_err(|e| e.to_string());
     let phones_on = opened.as_ref().map(|a| a.lan_enabled().unwrap_or(false)).unwrap_or(false);
 
@@ -802,6 +860,7 @@ fn main() {
         .manage(Core(Arc::new(Mutex::new(opened))))
         .manage(Arc::new(cloud::CloudRunner::new()))
         .manage(DataDir(data_dir.clone()))
+        .manage(Branches { base: PosApp::default_data_dir(), current: data_dir.clone(), chosen: chosen_dir.is_some() })
         .manage(Phones { hub: Mutex::new(None), error: Mutex::new(None), security_dir: data_dir.join("security") })
         .setup(move |app| {
             // Phones on the shop WiFi (only if the Owner turned it on).
@@ -828,7 +887,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            app_status, setup_first_run, login_password, login_pin, logout, reveal_recovery_phrase,
+            app_status, branches, branch_open, branch_create, setup_first_run, login_password, login_pin, logout, reveal_recovery_phrase,
             list_users, create_user, set_pin, set_user_active,
             get_settings, save_settings, diagnostics,
             search_products, search_sellable, scan_code, generate_barcode, assign_barcode, print_labels, create_product, update_price, list_units, create_unit,

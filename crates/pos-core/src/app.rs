@@ -425,6 +425,11 @@ impl PosApp {
         Ok(s)
     }
 
+    /// For the desktop shell: fails unless the logged-in user's role has `perm`.
+    pub fn check_permission(&self, perm: Permission) -> Result<()> {
+        self.require(perm).map(|_| ())
+    }
+
     /// Fails unless someone is logged in (any role).
     fn require_login(&self) -> Result<&UserSession> {
         let s = self.session.as_ref().ok_or_else(|| perm_err("Please log in first"))?;
